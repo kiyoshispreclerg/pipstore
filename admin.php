@@ -3,6 +3,10 @@ declare(strict_types=1);
 session_start();
 require __DIR__ . '/config.php';
 
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 /* ══════════════════════════════════════════════════════════════════════
    AUTENTICAÇÃO
 ══════════════════════════════════════════════════════════════════════ */
@@ -20,21 +24,29 @@ function require_login(): void {
 
 // Login
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['_action'] ?? '') === 'login') {
-    $username = trim($_POST['username'] ?? '');
-    $password = $_POST['password'] ?? '';
-    $st = mysqli_prepare($db, 'SELECT id, password_hash FROM admin_users WHERE username = ? LIMIT 1');
-    mysqli_stmt_bind_param($st, 's', $username);
-    mysqli_execute($st);
-    $user = mysqli_fetch_assoc(mysqli_stmt_get_result($st));
-    mysqli_stmt_close($st);
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    if (!rate_limit_check($ip)) {
+        $mins = (int)ceil(rate_limit_remaining($ip) / 60);
+        $login_error = "Muitas tentativas. Aguarde {$mins} minuto(s) e tente novamente.";
+    } else {
+        $username = trim($_POST['username'] ?? '');
+        $password = $_POST['password'] ?? '';
+        $st = mysqli_prepare($db, 'SELECT id, password_hash FROM admin_users WHERE username = ? LIMIT 1');
+        mysqli_stmt_bind_param($st, 's', $username);
+        mysqli_execute($st);
+        $user = mysqli_fetch_assoc(mysqli_stmt_get_result($st));
+        mysqli_stmt_close($st);
 
-    if ($user && password_verify($password, $user['password_hash'])) {
-        session_regenerate_id(true);
-        $_SESSION[ADMIN_SESSION_KEY] = $user['id'];
-        header('Location: admin.php');
-        exit;
+        if ($user && password_verify($password, $user['password_hash'])) {
+            rate_limit_reset($ip);
+            session_regenerate_id(true);
+            $_SESSION[ADMIN_SESSION_KEY] = $user['id'];
+            header('Location: admin.php');
+            exit;
+        }
+        rate_limit_fail($ip);
+        $login_error = 'Usuário ou senha incorretos.';
     }
-    $login_error = 'Usuário ou senha incorretos.';
 }
 
 // Logout
@@ -47,6 +59,59 @@ if (($_GET['_action'] ?? '') === 'logout') {
 /* ══════════════════════════════════════════════════════════════════════
    HELPERS
 ══════════════════════════════════════════════════════════════════════ */
+
+/* ── Rate limiting ───────────────────────────────────────────────────── */
+
+define('LOGIN_MAX_ATTEMPTS', 5);
+define('LOGIN_LOCKOUT_SECONDS', 900); // 15 minutos
+
+function _rl_file(string $ip): string {
+    return sys_get_temp_dir() . '/adm_rl_' . md5($ip) . '.json';
+}
+
+function rate_limit_check(string $ip): bool {
+    $file = _rl_file($ip);
+    if (!file_exists($file)) return true;
+    $data = json_decode((string)file_get_contents($file), true);
+    return !is_array($data) || ($data['until'] ?? 0) <= time();
+}
+
+function rate_limit_remaining(string $ip): int {
+    $file = _rl_file($ip);
+    if (!file_exists($file)) return 0;
+    $data = json_decode((string)file_get_contents($file), true);
+    return is_array($data) ? max(0, ($data['until'] ?? 0) - time()) : 0;
+}
+
+function rate_limit_fail(string $ip): void {
+    $file = _rl_file($ip);
+    $data = ['count' => 0, 'until' => 0];
+    if (file_exists($file)) {
+        $data = json_decode((string)file_get_contents($file), true) ?? $data;
+    }
+    if (($data['until'] ?? 0) > time()) return;
+    $data['count'] = ($data['count'] ?? 0) + 1;
+    if ($data['count'] >= LOGIN_MAX_ATTEMPTS) {
+        $data['until'] = time() + LOGIN_LOCKOUT_SECONDS;
+        $data['count'] = 0;
+    }
+    file_put_contents($file, json_encode($data), LOCK_EX);
+}
+
+function rate_limit_reset(string $ip): void {
+    $file = _rl_file($ip);
+    if (file_exists($file)) @unlink($file);
+}
+
+/* ── CSRF ────────────────────────────────────────────────────────────── */
+
+function verify_csrf(): void {
+    $token = $_POST['csrf_token'] ?? '';
+    if (empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $token)) {
+        http_response_code(403);
+        die('Requisição inválida (token CSRF incorreto).');
+    }
+}
 
 function h(string $s): string {
     return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -130,12 +195,26 @@ function get_default_lang_id(mysqli $db): int {
 ══════════════════════════════════════════════════════════════════════ */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
+    verify_csrf();
     $pa = $_POST['_action'] ?? '';
 
     /* ── Trocar senha ────────────────────────────────────────────────── */
     if ($pa === 'change_password') {
-        $uid = (int)$_SESSION[ADMIN_SESSION_KEY];
-        $pw  = $_POST['new_password'] ?? '';
+        $uid     = (int)$_SESSION[ADMIN_SESSION_KEY];
+        $current = $_POST['current_password'] ?? '';
+        $pw      = $_POST['new_password'] ?? '';
+
+        $st = mysqli_prepare($db, 'SELECT password_hash FROM admin_users WHERE id = ?');
+        mysqli_stmt_bind_param($st, 'i', $uid);
+        mysqli_execute($st);
+        $user = mysqli_fetch_assoc(mysqli_stmt_get_result($st));
+        mysqli_stmt_close($st);
+
+        if (!$user || !password_verify($current, $user['password_hash'])) {
+            flash('Senha atual incorreta.', 'err');
+            redirect('admin.php?section=password');
+        }
+
         if (strlen($pw) >= 6) {
             $hash = password_hash($pw, PASSWORD_DEFAULT);
             $st = mysqli_prepare($db, 'UPDATE admin_users SET password_hash = ? WHERE id = ?');
@@ -144,7 +223,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
             mysqli_stmt_close($st);
             flash('Senha alterada com sucesso.');
         } else {
-            flash('A senha deve ter pelo menos 6 caracteres.', 'err');
+            flash('A nova senha deve ter pelo menos 6 caracteres.', 'err');
         }
         redirect('admin.php?section=dashboard');
     }
@@ -450,7 +529,15 @@ if ($section === 'login') {
 }
 
 /* ── Render helper ───────────────────────────────────────────────────── */
-function admin_wrap(string $title, string $section, string $body, ?array $flash): void { ?>
+function admin_wrap(string $title, string $section, string $body, ?array $flash): void {
+    $csrf_input = '<input type="hidden" name="csrf_token" value="'
+                . htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8') . '">';
+    $body = preg_replace_callback(
+        '/(<form\b[^>]*\bmethod=["\']post["\'][^>]*>)/i',
+        fn($m) => $m[1] . $csrf_input,
+        $body
+    );
+    ?>
 <!DOCTYPE html>
 <html lang="pt" data-theme="light">
 <head>
@@ -545,8 +632,13 @@ if ($section === 'password') {
     <form method="post" class="adm-form">
       <input type="hidden" name="_action" value="change_password">
       <div class="adm-field">
+        <label>Senha atual
+          <input type="password" name="current_password" required autocomplete="current-password">
+        </label>
+      </div>
+      <div class="adm-field">
         <label>Nova senha (mín. 6 caracteres)
-          <input type="password" name="new_password" required minlength="6">
+          <input type="password" name="new_password" required minlength="6" autocomplete="new-password">
         </label>
       </div>
       <button type="submit" class="adm-btn adm-btn-primary">Salvar</button>

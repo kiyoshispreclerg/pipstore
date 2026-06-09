@@ -13,7 +13,9 @@ function get_current_lang(mysqli $db): array {
     if (!empty($_GET['lang'])) {
         $code = trim($_GET['lang']);
         // Persiste no cookie
-        setcookie('lang', $code, time() + 31536000, '/', '', false, false);
+        $is_https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                   || (int)($_SERVER['SERVER_PORT'] ?? 0) === 443;
+        setcookie('lang', $code, time() + 31536000, '/', '', $is_https, true);
     } elseif (!empty($_COOKIE['lang'])) {
         $code = trim($_COOKIE['lang']);
     }
