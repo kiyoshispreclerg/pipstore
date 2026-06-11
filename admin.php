@@ -22,6 +22,9 @@ function require_login(): void {
     }
 }
 
+define('LOGIN_MAX_ATTEMPTS', 5);
+define('LOGIN_LOCKOUT_SECONDS', 900); // 15 minutos
+
 // Login
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['_action'] ?? '') === 'login') {
     $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
@@ -61,9 +64,6 @@ if (($_GET['_action'] ?? '') === 'logout') {
 ══════════════════════════════════════════════════════════════════════ */
 
 /* ── Rate limiting ───────────────────────────────────────────────────── */
-
-define('LOGIN_MAX_ATTEMPTS', 5);
-define('LOGIN_LOCKOUT_SECONDS', 900); // 15 minutos
 
 function _rl_file(string $ip): string {
     return sys_get_temp_dir() . '/adm_rl_' . md5($ip) . '.json';
