@@ -45,6 +45,7 @@ CREATE TABLE books_t (
   book_id     INT UNSIGNED NOT NULL,
   lang_id     INT UNSIGNED NOT NULL,
   title       VARCHAR(200) NOT NULL,
+  copyright   VARCHAR(300),
   description TEXT,
   UNIQUE KEY uq_book_lang (book_id, lang_id),
   FOREIGN KEY (book_id)  REFERENCES books(id)     ON DELETE CASCADE,

@@ -349,14 +349,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
         }
 
         foreach ($trans as $lid_s => $t) {
-            $lid2  = (int)$lid_s;
-            $title = trim($t['title'] ?? '');
-            $desc  = trim($t['description'] ?? '');
+            $lid2      = (int)$lid_s;
+            $title     = trim($t['title'] ?? '');
+            $copyright = trim($t['copyright'] ?? '');
+            $desc      = trim($t['description'] ?? '');
             if ($title === '') continue;
             $st2 = mysqli_prepare($db,
-                'INSERT INTO books_t (book_id,lang_id,title,description) VALUES (?,?,?,?)
-                 ON DUPLICATE KEY UPDATE title=VALUES(title), description=VALUES(description)');
-            mysqli_stmt_bind_param($st2, 'iiss', $bid, $lid2, $title, $desc);
+                'INSERT INTO books_t (book_id,lang_id,title,copyright,description) VALUES (?,?,?,?,?)
+                 ON DUPLICATE KEY UPDATE title=VALUES(title), copyright=VALUES(copyright), description=VALUES(description)');
+            mysqli_stmt_bind_param($st2, 'iisss', $bid, $lid2, $title, $copyright, $desc);
             mysqli_execute($st2); mysqli_stmt_close($st2);
         }
         flash('Livro salvo.');
@@ -839,7 +840,7 @@ if ($section === 'books') {
             "SELECT * FROM books WHERE id = $edit_id"));
         if ($edit) {
             $res = mysqli_query($db,
-                "SELECT lang_id, title, description FROM books_t WHERE book_id = $edit_id");
+                "SELECT lang_id, title, copyright, description FROM books_t WHERE book_id = $edit_id");
             while ($r = mysqli_fetch_assoc($res)) $edit_trans[$r['lang_id']] = $r;
         }
     }
@@ -899,6 +900,12 @@ if ($section === 'books') {
             <input type="text" name="trans[<?= $l['id'] ?>][title]"
                    <?= $is_def ? 'required' : '' ?>
                    value="<?= h($edit_trans[$l['id']]['title'] ?? '') ?>">
+          </label>
+        </div>
+        <div class="adm-field">
+          <label>Copyright <span style="color:var(--adm-muted);font-size:.8rem">(ex: © 2024 Autor — aparece abaixo do título)</span>
+            <input type="text" name="trans[<?= $l['id'] ?>][copyright]" maxlength="300"
+                   value="<?= h($edit_trans[$l['id']]['copyright'] ?? '') ?>">
           </label>
         </div>
         <div class="adm-field">

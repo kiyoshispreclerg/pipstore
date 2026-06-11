@@ -176,6 +176,13 @@ hr.divider {
   margin-bottom: 1.5rem;
 }
 
+.book-copyright {
+  font-size: .78rem;
+  color: var(--text-muted);
+  margin-bottom: .6rem;
+  letter-spacing: .01em;
+}
+
 .content-body p {
   margin-bottom: 1.1em;
 }

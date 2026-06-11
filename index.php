@@ -232,6 +232,7 @@ function view_book(mysqli $db, string $slug, array $lang): array {
     // Tradução do livro (fallback para qualquer idioma disponível)
     $st2 = mysqli_prepare($db,
         "SELECT COALESCE(bt.title, bt2.title, ?) AS title,
+                COALESCE(bt.copyright, bt2.copyright, '') AS copyright,
                 COALESCE(bt.description, bt2.description, '') AS description
          FROM books b
          LEFT JOIN books_t bt  ON bt.book_id  = b.id AND bt.lang_id = ?
@@ -263,6 +264,9 @@ function view_book(mysqli $db, string $slug, array $lang): array {
       <?php endif; ?>
       <div class="book-cover-info">
         <h1 class="page-title"><?= h($info['title']) ?></h1>
+        <?php if ($info['copyright']): ?>
+        <p class="book-copyright"><?= h($info['copyright']) ?></p>
+        <?php endif; ?>
         <?php if ($info['description']): ?>
         <p class="page-subtitle"><?= h($info['description']) ?></p>
         <?php endif; ?>
