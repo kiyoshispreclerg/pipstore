@@ -190,6 +190,82 @@ function get_default_lang_id(mysqli $db): int {
     return $row ? (int)$row['id'] : 0;
 }
 
+function notify_new_chapter(mysqli $db, int $chapter_id, int $book_id, int $default_lid): void {
+    $brow = mysqli_fetch_assoc(mysqli_query($db, "SELECT series_id, slug FROM books WHERE id=$book_id LIMIT 1"));
+    if (!$brow) return;
+    $series_id = (int)$brow['series_id'];
+    $book_slug = $brow['slug'];
+
+    $crow = mysqli_fetch_assoc(mysqli_query($db,
+        "SELECT ct.title, c.slug FROM chapters c
+         LEFT JOIN chapters_t ct ON ct.chapter_id=c.id AND ct.lang_id=$default_lid
+         WHERE c.id=$chapter_id LIMIT 1"));
+    $btrow = mysqli_fetch_assoc(mysqli_query($db,
+        "SELECT title FROM books_t WHERE book_id=$book_id AND lang_id=$default_lid LIMIT 1"));
+    if (!$crow) return;
+
+    $chapter_title = $crow['title'] ?: 'Novo capítulo';
+    $book_title    = $btrow ? $btrow['title'] : '';
+    $chapter_slug  = $crow['slug'];
+
+    $cfg  = load_settings($db);
+    $sname = $cfg['site_name'] ?? 'Histórias';
+    $base = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http')
+          . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost')
+          . rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/'), '/') . '/';
+    $url  = $base . 'index.php?slug=' . rawurlencode($chapter_slug);
+
+    $nres = mysqli_query($db,
+        "SELECT DISTINCT r.id, r.email, r.username
+         FROM readers r JOIN reader_favorites rf ON rf.reader_id=r.id
+         WHERE r.notify_favorites=1 AND r.email_verified=1
+           AND ((rf.type='book'   AND rf.target_id=$book_id)
+             OR (rf.type='series' AND rf.target_id=$series_id))");
+    if (!$nres) return;
+    require_once __DIR__ . '/assets/mailer.php';
+    while ($nr = mysqli_fetch_assoc($nres)) {
+        $body = '<p>Olá, <strong>' . htmlspecialchars($nr['username'], ENT_QUOTES, 'UTF-8') . '</strong>!</p>'
+              . '<p>Um novo capítulo foi publicado em <strong>'
+              . htmlspecialchars($book_title, ENT_QUOTES, 'UTF-8') . '</strong>:</p>'
+              . '<p><strong>' . htmlspecialchars($chapter_title, ENT_QUOTES, 'UTF-8') . '</strong></p>';
+        $html = mail_layout_stories('Novo capítulo publicado', $body, 'Ler agora', $url, $sname);
+        send_mail($db, $nr['email'], 'Novo capítulo: ' . $chapter_title . ' — ' . $sname, $html);
+    }
+}
+
+function notify_new_book(mysqli $db, int $book_id, int $series_id, int $default_lid): void {
+    $brow = mysqli_fetch_assoc(mysqli_query($db,
+        "SELECT bt.title, b.slug FROM books b
+         LEFT JOIN books_t bt ON bt.book_id=b.id AND bt.lang_id=$default_lid
+         WHERE b.id=$book_id LIMIT 1"));
+    if (!$brow) return;
+
+    $book_title = $brow['title'] ?: 'Novo livro';
+    $book_slug  = $brow['slug'];
+
+    $cfg  = load_settings($db);
+    $sname = $cfg['site_name'] ?? 'Histórias';
+    $base = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http')
+          . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost')
+          . rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/'), '/') . '/';
+    $url  = $base . 'index.php?slug=' . rawurlencode($book_slug);
+
+    $nres = mysqli_query($db,
+        "SELECT DISTINCT r.id, r.email, r.username
+         FROM readers r JOIN reader_favorites rf ON rf.reader_id=r.id
+         WHERE r.notify_favorites=1 AND r.email_verified=1
+           AND rf.type='series' AND rf.target_id=$series_id");
+    if (!$nres) return;
+    require_once __DIR__ . '/assets/mailer.php';
+    while ($nr = mysqli_fetch_assoc($nres)) {
+        $body = '<p>Olá, <strong>' . htmlspecialchars($nr['username'], ENT_QUOTES, 'UTF-8') . '</strong>!</p>'
+              . '<p>Um novo livro foi publicado na série que você acompanha:</p>'
+              . '<p><strong>' . htmlspecialchars($book_title, ENT_QUOTES, 'UTF-8') . '</strong></p>';
+        $html = mail_layout_stories('Novo livro publicado', $body, 'Ver livro', $url, $sname);
+        send_mail($db, $nr['email'], 'Novo livro: ' . $book_title . ' — ' . $sname, $html);
+    }
+}
+
 /* ══════════════════════════════════════════════════════════════════════
    PROCESSAMENTO DE FORMULÁRIOS (POST)
 ══════════════════════════════════════════════════════════════════════ */
@@ -334,6 +410,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
         if ($slug === '') { flash('O título no idioma padrão é obrigatório.', 'err'); redirect('admin.php?section=books'); }
         $slug = generate_slug($slug);
 
+        $is_new_book = ($bid === 0);
         if ($bid > 0) {
             $st = mysqli_prepare($db,
                 'UPDATE books SET series_id=?,slug=?,cover_image=?,sort_order=? WHERE id=?');
@@ -360,6 +437,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
             mysqli_stmt_bind_param($st2, 'iisss', $bid, $lid2, $title, $copyright, $desc);
             mysqli_execute($st2); mysqli_stmt_close($st2);
         }
+        if ($is_new_book) notify_new_book($db, $bid, $srid, $default_lid);
         flash('Livro salvo.');
         redirect('admin.php?section=books');
     }
@@ -393,6 +471,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
         if ($slug === '') { flash('O título no idioma padrão é obrigatório.', 'err'); redirect('admin.php?section=chapters&book_id=' . $bid); }
         $slug = generate_slug($slug);
 
+        $is_new_chapter = ($cid === 0);
         if ($cid > 0) {
             $st = mysqli_prepare($db,
                 'UPDATE chapters SET book_id=?,slug=?,sort_order=? WHERE id=?');
@@ -418,6 +497,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
             mysqli_stmt_bind_param($st2, 'iiss', $cid, $lid2, $title, $content);
             mysqli_execute($st2); mysqli_stmt_close($st2);
         }
+        if ($is_new_chapter) notify_new_chapter($db, $cid, $bid, $default_lid);
         flash('Capítulo salvo.');
         redirect('admin.php?section=chapters&book_id=' . $bid);
     }
