@@ -124,6 +124,9 @@
       var comments = byPara[idx] || [];
       var count = comments.filter(function (c) { return c.status === 'visible'; }).length;
 
+      // Captura o texto antes de adicionar o botão
+      var paraText = p.textContent.trim();
+
       var btn = document.createElement('button');
       btn.className = 'para-comment-btn' + (count > 0 ? ' has-comments' : '');
       btn.setAttribute('type', 'button');
@@ -133,9 +136,16 @@
       btn.innerHTML = count > 0 ? ('💬 ' + count) : '+';
       btn.addEventListener('click', function (e) {
         e.stopPropagation();
-        openModal(idx, p.textContent.trim(), comments);
+        openModal(idx, paraText, comments);
       });
       p.appendChild(btn);
+
+      // Clique no próprio parágrafo também abre o modal
+      p.style.cursor = 'pointer';
+      p.addEventListener('click', function (e) {
+        if (e.target === btn) return;
+        openModal(idx, paraText, comments);
+      });
     });
 
     // Fecha ao clicar no backdrop ou no X
