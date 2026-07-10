@@ -612,7 +612,7 @@ $accent_rgb = hex_to_rgb($accent);
 
 <footer id="site-footer">
   <div class="footer-inner">
-    <span><?= h(SITE_NAME) ?></span>
+    <a href="https://github.com/kiyoshispreclerg/pipstore" class="footer-pipstore-link" target="_blank" rel="noopener">PipStore v<?= APP_VERSION ?></a>
     <div class="footer-auth">
       <?php if ($reader): ?>
       <span class="footer-username"><?= h($reader['username']) ?></span>

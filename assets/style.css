@@ -441,6 +441,13 @@ hr.divider {
 .footer-auth-link:hover {
   color: var(--accent);
 }
+.footer-pipstore-link {
+  font-size: .8rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-family: var(--font-ui);
+}
+.footer-pipstore-link:hover { color: var(--accent); }
 
 .lang-select {
   background: transparent;
