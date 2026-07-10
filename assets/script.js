@@ -9,6 +9,7 @@
     setupToggleButtons();
     highlightLastReadChapter();
     setupComments();
+    setupFavorites();
   });
 
   /* ── Preferências ───────────────────────────────────────────────────── */
@@ -306,6 +307,31 @@
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
     }
+  }
+
+  /* ── Favoritos ───────────────────────────────────────────────────────── */
+  function setupFavorites() {
+    document.querySelectorAll('.fav-btn[data-fav-type]').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var type = btn.getAttribute('data-fav-type');
+        var id   = btn.getAttribute('data-fav-id');
+        var fd   = new FormData();
+        fd.append('type',      type);
+        fd.append('target_id', id);
+        fetch('auth.php?a=favorite', { method: 'POST', body: fd, credentials: 'same-origin' })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (!d.ok) return;
+            btn.classList.toggle('active', d.favorited);
+            btn.setAttribute('aria-pressed', d.favorited ? 'true' : 'false');
+            btn.title      = d.favorited ? 'Remover dos favoritos' : 'Adicionar aos favoritos';
+            btn.textContent = d.favorited ? '★' : '☆';
+          })
+          .catch(function () {});
+      });
+    });
   }
 
   /* ── Troca de idioma ─────────────────────────────────────────────────── */

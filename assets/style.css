@@ -291,13 +291,35 @@ hr.divider {
 }
 .book-cover-info { flex: 1; }
 
+/* ── Botão de favorito (estrela) ─────────────────────────────────────── */
+.fav-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--text-muted);
+  padding: .1rem .2rem;
+  transition: color .15s, transform .1s;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+.fav-btn:hover  { color: #f59e0b; }
+.fav-btn.active { color: #f59e0b; }
+.fav-btn.fav-hint { font-size: .95rem; }
+
 /* ── Lista de séries ─────────────────────────────────────────────────── */
 .series-block { margin-bottom: 2.5rem; }
 
+.series-title-row {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  margin-bottom: .5rem;
+}
 .series-title {
   font-size: 1.15rem;
   font-weight: 700;
-  margin-bottom: .5rem;
 }
 
 .book-grid {
@@ -306,6 +328,23 @@ hr.divider {
   gap: .75rem;
   margin-top: .75rem;
 }
+
+/* Wrapper que contém o card + estrela */
+.book-card-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.book-card-wrap .fav-btn {
+  position: absolute;
+  top: .45rem;
+  right: .45rem;
+  font-size: .95rem;
+  opacity: 0;
+  transition: opacity .15s, color .15s;
+}
+.book-card-wrap:hover .fav-btn,
+.book-card-wrap .fav-btn.active { opacity: 1; }
 
 .book-card {
   border: 1.5px solid var(--border);

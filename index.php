@@ -192,17 +192,23 @@ function view_series(mysqli $db, array $lang): array {
     <?php endif; ?>
     <?php foreach ($series_list as $s): ?>
     <div class="series-block">
-      <div class="series-title"><?= h($s['title']) ?></div>
+      <div class="series-title-row">
+        <span class="series-title"><?= h($s['title']) ?></span>
+        <?= fav_btn('series', (int)$s['id']) ?>
+      </div>
       <?php if ($s['description']): ?>
       <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:.5rem"><?= h($s['description']) ?></p>
       <?php endif; ?>
       <?php if ($s['books']): ?>
       <div class="book-grid">
         <?php foreach ($s['books'] as $b): ?>
-        <a href="?action=book&amp;slug=<?= ue($b['slug']) ?>" class="book-card">
-          <div class="book-card-series"><?= h($s['title']) ?></div>
-          <?= h($b['title']) ?>
-        </a>
+        <div class="book-card-wrap">
+          <a href="?action=book&amp;slug=<?= ue($b['slug']) ?>" class="book-card">
+            <div class="book-card-series"><?= h($s['title']) ?></div>
+            <?= h($b['title']) ?>
+          </a>
+          <?= fav_btn('book', (int)$b['id']) ?>
+        </div>
         <?php endforeach; ?>
       </div>
       <?php else: ?>
@@ -265,7 +271,10 @@ function view_book(mysqli $db, string $slug, array $lang): array {
       <img src="<?= h($book['cover_image']) ?>" alt="<?= h($info['title']) ?>">
       <?php endif; ?>
       <div class="book-cover-info">
-        <h1 class="page-title"><?= h($info['title']) ?></h1>
+        <div style="display:flex;align-items:flex-start;gap:.5rem">
+          <h1 class="page-title" style="flex:1"><?= h($info['title']) ?></h1>
+          <?= fav_btn('book', $bid) ?>
+        </div>
         <?php if ($info['copyright']): ?>
         <p class="book-copyright"><?= h($info['copyright']) ?></p>
         <?php endif; ?>
@@ -476,6 +485,22 @@ function ue(string $s): string {
     return urlencode($s);
 }
 
+// Botão de estrela para favoritar série ou livro
+function fav_btn(string $type, int $id): string {
+    $reader = $GLOBALS['_reader'] ?? null;
+    $favs   = $GLOBALS['_favs'][$type] ?? [];
+    $active = in_array($id, $favs, true);
+    if (!$reader) {
+        return '<a href="auth.php?a=login" class="fav-btn fav-hint" title="Entre para favoritar">☆</a>';
+    }
+    $star = $active ? '★' : '☆';
+    return '<button class="fav-btn' . ($active ? ' active' : '') . '" '
+         . 'data-fav-type="' . $type . '" data-fav-id="' . $id . '" '
+         . 'title="' . ($active ? 'Remover dos favoritos' : 'Adicionar aos favoritos') . '" '
+         . 'aria-pressed="' . ($active ? 'true' : 'false') . '">'
+         . $star . '</button>';
+}
+
 // Acessa settings globais carregados no roteamento
 function site_setting(string $key, string $default = ''): string {
     return (string)($GLOBALS['_settings'][$key] ?? $default);
@@ -498,6 +523,17 @@ $all_langs         = get_all_langs($db);
 $GLOBALS['_settings'] = load_settings($db);
 $reader            = current_reader($db);
 $GLOBALS['_reader'] = $reader;
+
+// Carrega favoritos do leitor logado (sets de IDs por tipo)
+$GLOBALS['_favs'] = ['series' => [], 'book' => []];
+if ($reader) {
+    $rid_g = (int)$reader['id'];
+    $fres  = mysqli_query($db, "SELECT type, target_id FROM reader_favorites WHERE reader_id = $rid_g");
+    while ($fr = mysqli_fetch_assoc($fres)) {
+        $GLOBALS['_favs'][$fr['type']][] = (int)$fr['target_id'];
+    }
+}
+
 $action            = trim($_GET['action'] ?? '');
 $slug              = trim($_GET['slug']   ?? '');
 
