@@ -32,11 +32,20 @@ function current_reader(mysqli $db): ?array {
 }
 
 function send_mail(mysqli $db, string $to, string $subject, string $html): bool {
-    // Implementação completa na Etapa 10 (mailer.php).
-    // Por enquanto tenta mail() nativo como fallback.
+    static $mailer_loaded = false;
+    if (!$mailer_loaded) {
+        require_once __DIR__ . '/assets/mailer.php';
+        $mailer_loaded = true;
+    }
+    $cfg = load_settings($db);
+    if (!empty($cfg['smtp_host'])) {
+        return smtp_send($cfg, $to, $subject, $html);
+    }
+    // Fallback: mail() nativo
     $headers  = "MIME-Version: 1.0\r\n";
     $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
-    $headers .= "From: noreply@" . ($_SERVER['HTTP_HOST'] ?? 'localhost') . "\r\n";
+    $from = $cfg['smtp_from'] ?? ('noreply@' . ($_SERVER['HTTP_HOST'] ?? 'localhost'));
+    $headers .= "From: $from\r\n";
     return @mail($to, $subject, $html, $headers);
 }
 

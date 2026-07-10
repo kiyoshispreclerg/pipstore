@@ -510,6 +510,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
 
         if (!preg_match('/^#[0-9a-fA-F]{6}$/', $accent_v)) $accent_v = '#2e7d52';
 
+        $smtp_fields = ['smtp_host', 'smtp_port', 'smtp_encryption', 'smtp_user', 'smtp_from', 'smtp_from_name'];
+        foreach ($smtp_fields as $sf) {
+            $sv = trim($_POST[$sf] ?? '');
+            $st = mysqli_prepare($db,
+                'INSERT INTO site_settings (`key`,`value`) VALUES (?,?)
+                 ON DUPLICATE KEY UPDATE `value`=VALUES(`value`)');
+            mysqli_stmt_bind_param($st, 'ss', $sf, $sv);
+            mysqli_execute($st); mysqli_stmt_close($st);
+        }
+        // Senha SMTP: só salva se preenchida (evita apagar senha existente)
+        $smtp_pass_v = trim($_POST['smtp_pass'] ?? '');
+        if ($smtp_pass_v !== '') {
+            $st = mysqli_prepare($db,
+                'INSERT INTO site_settings (`key`,`value`) VALUES (\'smtp_pass\',?)
+                 ON DUPLICATE KEY UPDATE `value`=VALUES(`value`)');
+            mysqli_stmt_bind_param($st, 's', $smtp_pass_v);
+            mysqli_execute($st); mysqli_stmt_close($st);
+        }
+
         foreach (['site_name' => $site_name_v, 'accent_color' => $accent_v, 'logo_url' => $logo_v] as $k => $v) {
             $st = mysqli_prepare($db,
                 'INSERT INTO site_settings (`key`,`value`) VALUES (?,?)
@@ -1330,6 +1349,62 @@ if ($section === 'design') {
           </div>
         </fieldset>
         <?php endforeach; ?>
+      </div>
+
+      <div class="adm-card" style="margin-bottom:1.5rem">
+        <h2 style="font-size:1rem;font-weight:700;margin-bottom:1rem">E-mail (SMTP)</h2>
+        <p style="font-size:.82rem;color:var(--adm-muted);margin-bottom:1rem">
+          Necessário para envio de e-mails de verificação de cadastro e troca de e-mail.
+          Deixe smtp_host vazio para usar o <code>mail()</code> nativo do PHP.
+        </p>
+        <div class="adm-fields-row">
+          <div class="adm-field">
+            <label>Host SMTP
+              <input type="text" name="smtp_host" placeholder="smtp.example.com"
+                     value="<?= h($cfg['smtp_host'] ?? '') ?>">
+            </label>
+          </div>
+          <div class="adm-field" style="max-width:100px">
+            <label>Porta
+              <input type="number" name="smtp_port" placeholder="587"
+                     value="<?= h($cfg['smtp_port'] ?? '587') ?>">
+            </label>
+          </div>
+          <div class="adm-field" style="max-width:120px">
+            <label>Encryption
+              <select name="smtp_encryption">
+                <option value="tls" <?= ($cfg['smtp_encryption'] ?? 'tls') === 'tls' ? 'selected' : '' ?>>TLS (STARTTLS)</option>
+                <option value="ssl" <?= ($cfg['smtp_encryption'] ?? '') === 'ssl'  ? 'selected' : '' ?>>SSL</option>
+                <option value=""    <?= ($cfg['smtp_encryption'] ?? '') === ''      ? 'selected' : '' ?>>Nenhuma</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="adm-fields-row">
+          <div class="adm-field">
+            <label>Usuário SMTP
+              <input type="text" name="smtp_user" value="<?= h($cfg['smtp_user'] ?? '') ?>">
+            </label>
+          </div>
+          <div class="adm-field">
+            <label>Senha SMTP
+              <input type="password" name="smtp_pass" placeholder="(deixe vazio para manter)"
+                     autocomplete="new-password">
+            </label>
+          </div>
+        </div>
+        <div class="adm-fields-row">
+          <div class="adm-field">
+            <label>E-mail remetente (From)
+              <input type="email" name="smtp_from" value="<?= h($cfg['smtp_from'] ?? '') ?>">
+            </label>
+          </div>
+          <div class="adm-field">
+            <label>Nome remetente
+              <input type="text" name="smtp_from_name" value="<?= h($cfg['smtp_from_name'] ?? '') ?>">
+            </label>
+          </div>
+        </div>
       </div>
 
       <div class="adm-actions">
