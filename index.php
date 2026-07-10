@@ -139,10 +139,13 @@ function view_home(mysqli $db, array $lang): array {
     <div class="home-recent-title">Histórias recentes</div>
     <div class="book-grid">
       <?php foreach ($books as $b): ?>
-      <a href="?action=book&amp;slug=<?= ue($b['slug']) ?>" class="book-card">
-        <div class="book-card-series"><?= h($b['series_title']) ?></div>
-        <?= h($b['title']) ?>
-      </a>
+      <div class="book-card-wrap">
+        <a href="?action=book&amp;slug=<?= ue($b['slug']) ?>" class="book-card">
+          <div class="book-card-series"><?= h($b['series_title']) ?></div>
+          <?= h($b['title']) ?>
+        </a>
+        <?= fav_btn('book', (int)$b['id']) ?>
+      </div>
       <?php endforeach; ?>
     </div>
     <?php else: ?>
