@@ -81,7 +81,7 @@ function destroy_session(mysqli $db): void {
 
 function reader_by_id(mysqli $db, int $id): ?array {
     $st = mysqli_prepare($db,
-        'SELECT id, username, email, email_verified, trusted_at, new_email FROM readers WHERE id = ? LIMIT 1');
+        'SELECT id, username, email, email_verified, trusted_at, new_email, notify_favorites FROM readers WHERE id = ? LIMIT 1');
     mysqli_stmt_bind_param($st, 'i', $id);
     mysqli_execute($st);
     $res = mysqli_stmt_get_result($st);
