@@ -440,6 +440,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
         redirect('admin.php?section=chapters&book_id=' . $bid_back);
     }
 
+    /* ── Moderação de comentários ────────────────────────────────────── */
+    if ($pa === 'approve_comment') {
+        $cid = (int)($_POST['comment_id'] ?? 0);
+        if ($cid > 0) {
+            $st = mysqli_prepare($db, "UPDATE comments SET status='visible' WHERE id=?");
+            mysqli_stmt_bind_param($st, 'i', $cid);
+            mysqli_execute($st); mysqli_stmt_close($st);
+
+            // Conta comentários aprovados do autor; se >= 5, marca como confiável
+            $st2 = mysqli_prepare($db,
+                'SELECT c.reader_id,
+                        (SELECT COUNT(*) FROM comments c2 WHERE c2.reader_id = c.reader_id AND c2.status = \'visible\') AS approved_count
+                 FROM comments c WHERE c.id = ? LIMIT 1');
+            mysqli_stmt_bind_param($st2, 'i', $cid);
+            mysqli_execute($st2);
+            $res2 = mysqli_stmt_get_result($st2);
+            $row2 = mysqli_fetch_assoc($res2);
+            mysqli_free_result($res2); mysqli_stmt_close($st2);
+            if ($row2 && (int)$row2['approved_count'] >= 5) {
+                $st3 = mysqli_prepare($db,
+                    'UPDATE readers SET trusted_at = NOW() WHERE id = ? AND trusted_at IS NULL');
+                mysqli_stmt_bind_param($st3, 'i', (int)$row2['reader_id']);
+                mysqli_execute($st3); mysqli_stmt_close($st3);
+            }
+        }
+        flash('Comentário aprovado.');
+        redirect('admin.php?section=comments');
+    }
+
+    if ($pa === 'reject_comment') {
+        $cid = (int)($_POST['comment_id'] ?? 0);
+        if ($cid > 0) {
+            $st = mysqli_prepare($db, "UPDATE comments SET status='hidden' WHERE id=?");
+            mysqli_stmt_bind_param($st, 'i', $cid);
+            mysqli_execute($st); mysqli_stmt_close($st);
+        }
+        flash('Comentário rejeitado.');
+        redirect('admin.php?section=comments');
+    }
+
+    if ($pa === 'delete_comment') {
+        $cid = (int)($_POST['comment_id'] ?? 0);
+        if ($cid > 0) {
+            $st = mysqli_prepare($db, 'DELETE FROM comments WHERE id=?');
+            mysqli_stmt_bind_param($st, 'i', $cid);
+            mysqli_execute($st); mysqli_stmt_close($st);
+        }
+        flash('Comentário excluído.');
+        redirect('admin.php?section=comments');
+    }
+
+    if ($pa === 'trust_reader') {
+        $rid = (int)($_POST['reader_id'] ?? 0);
+        if ($rid > 0) {
+            $st = mysqli_prepare($db, 'UPDATE readers SET trusted_at = NOW() WHERE id = ?');
+            mysqli_stmt_bind_param($st, 'i', $rid);
+            mysqli_execute($st); mysqli_stmt_close($st);
+        }
+        flash('Leitor marcado como confiável.');
+        redirect('admin.php?section=comments');
+    }
+
     /* ── Design / configurações visuais ─────────────────────────────── */
     if ($pa === 'save_design') {
         $site_name_v = trim($_POST['site_name']    ?? '');
@@ -564,6 +626,10 @@ function admin_wrap(string $title, string $section, string $body, ?array $flash)
     <a href="admin.php?section=books"      class="<?= $section==='books'      ?'active':'' ?>">Livros</a>
     <a href="admin.php?section=chapters"   class="<?= $section==='chapters'   ?'active':'' ?>">Capítulos</a>
     <a href="admin.php?section=bio"        class="<?= $section==='bio'        ?'active':'' ?>">Bio Links</a>
+    <a href="admin.php?section=comments"  class="<?= $section==='comments'  ?'active':'' ?>">Comentários<?php
+      $pc = mysqli_fetch_row(mysqli_query($db, "SELECT COUNT(*) FROM comments WHERE status='pending'"));
+      if ($pc && $pc[0] > 0) echo ' <span style="background:var(--adm-accent);color:#fff;border-radius:999px;padding:1px 6px;font-size:.72rem">' . (int)$pc[0] . '</span>';
+    ?></a>
     <a href="admin.php?section=design"    class="<?= $section==='design'    ?'active':'' ?>">Design</a>
     <hr>
     <a href="admin.php?section=password">Senha</a>
@@ -608,17 +674,25 @@ if ($section === 'login') {
 /* ── Dashboard ──────────────────────────────────────────────────────── */
 if ($section === 'dashboard') {
     $counts = [];
-    foreach (['series','books','chapters','languages','bio_links'] as $t) {
+    foreach (['series','books','chapters','languages','bio_links','readers'] as $t) {
         $r = mysqli_fetch_row(mysqli_query($db, "SELECT COUNT(*) FROM $t"));
         $counts[$t] = $r[0];
     }
+    $r = mysqli_fetch_row(mysqli_query($db, "SELECT COUNT(*) FROM comments WHERE status='pending'"));
+    $counts['pending_comments'] = (int)($r[0] ?? 0);
     ob_start(); ?>
     <div class="adm-stats">
       <div class="adm-stat"><span><?= $counts['series'] ?></span>Séries</div>
       <div class="adm-stat"><span><?= $counts['books'] ?></span>Livros</div>
       <div class="adm-stat"><span><?= $counts['chapters'] ?></span>Capítulos</div>
-      <div class="adm-stat"><span><?= $counts['languages'] ?></span>Idiomas</div>
+      <div class="adm-stat"><span><?= $counts['readers'] ?></span>Leitores</div>
     </div>
+    <?php if ($counts['pending_comments'] > 0): ?>
+    <p style="margin-top:1rem;padding:.6rem 1rem;background:rgba(217,119,6,.12);border-radius:8px;font-size:.88rem;font-family:var(--adm-font-ui)">
+      ⚠ <strong><?= $counts['pending_comments'] ?></strong> comentário(s) aguardando moderação.
+      <a href="admin.php?section=comments" style="color:var(--adm-accent)">Ver agora</a>
+    </p>
+    <?php endif; ?>
     <p style="margin-top:1.5rem;color:var(--adm-muted);font-size:.9rem">
       Use o menu lateral para gerenciar o conteúdo do site.
     </p>
@@ -1264,6 +1338,102 @@ if ($section === 'design') {
     </form>
     <?php
     admin_wrap('Design', 'design', ob_get_clean(), $flash);
+    exit;
+}
+
+/* ── Comentários (moderação) ────────────────────────────────────────── */
+if ($section === 'comments') {
+    $filter = $_GET['filter'] ?? 'pending';
+    $allowed_filters = ['pending', 'visible', 'hidden', 'all'];
+    if (!in_array($filter, $allowed_filters, true)) $filter = 'pending';
+
+    $where = $filter === 'all' ? '' : "WHERE cm.status = '$filter'";
+
+    $comments_list = [];
+    $res = mysqli_query($db,
+        "SELECT cm.id, cm.paragraph_index, cm.body, cm.status, cm.score, cm.created_at,
+                r.id AS reader_id, r.username, r.trusted_at,
+                ct.title AS chapter_title, ct.chapter_id,
+                bt.title AS book_title
+         FROM comments cm
+         JOIN readers r   ON r.id  = cm.reader_id
+         JOIN chapters ch ON ch.id = cm.chapter_id
+         LEFT JOIN chapters_t ct ON ct.chapter_id = ch.id
+         LEFT JOIN books b       ON b.id = ch.book_id
+         LEFT JOIN books_t bt    ON bt.book_id = b.id
+         $where
+         GROUP BY cm.id
+         ORDER BY cm.created_at DESC
+         LIMIT 200");
+    while ($r = mysqli_fetch_assoc($res)) $comments_list[] = $r;
+
+    ob_start(); ?>
+    <div style="margin-bottom:1.2rem;display:flex;gap:.5rem;flex-wrap:wrap">
+      <?php foreach (['pending' => 'Pendentes', 'visible' => 'Aprovados', 'hidden' => 'Ocultos', 'all' => 'Todos'] as $f => $label): ?>
+      <a href="admin.php?section=comments&amp;filter=<?= $f ?>"
+         class="adm-btn adm-btn-sm <?= $filter === $f ? 'adm-btn-primary' : '' ?>"><?= $label ?></a>
+      <?php endforeach; ?>
+    </div>
+
+    <?php if (!$comments_list): ?>
+    <p style="color:var(--adm-muted)">Nenhum comentário nesta categoria.</p>
+    <?php else: ?>
+    <table class="adm-table">
+      <thead><tr><th>Leitor</th><th>Cap./§</th><th>Comentário</th><th>Score</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+      <?php foreach ($comments_list as $cm): ?>
+      <tr>
+        <td>
+          <?= h($cm['username']) ?>
+          <?php if (!$cm['trusted_at']): ?>
+          <form method="post" class="inline" style="display:inline">
+            <input type="hidden" name="_action"   value="trust_reader">
+            <input type="hidden" name="reader_id" value="<?= (int)$cm['reader_id'] ?>">
+            <button class="adm-btn adm-btn-sm" title="Marcar como confiável">★</button>
+          </form>
+          <?php else: ?>
+          <span title="Confiável" style="color:var(--adm-accent)">★</span>
+          <?php endif; ?>
+        </td>
+        <td style="font-size:.82rem">
+          <?= h($cm['book_title'] ?? '—') ?><br>
+          <span style="color:var(--adm-muted)"><?= h($cm['chapter_title'] ?? '—') ?> §<?= (int)$cm['paragraph_index'] + 1 ?></span>
+        </td>
+        <td style="max-width:300px;word-break:break-word;font-size:.85rem"><?= h(mb_strimwidth($cm['body'], 0, 200, '…')) ?></td>
+        <td><?= (int)$cm['score'] ?></td>
+        <td>
+          <?php $sc = $cm['status'];
+                $colors = ['pending' => '#d97706', 'visible' => '#16a34a', 'hidden' => '#dc2626'];
+                echo '<span style="color:' . ($colors[$sc] ?? '#888') . '">' . h($sc) . '</span>'; ?>
+        </td>
+        <td class="adm-td-actions">
+          <?php if ($cm['status'] !== 'visible'): ?>
+          <form method="post" class="inline">
+            <input type="hidden" name="_action"    value="approve_comment">
+            <input type="hidden" name="comment_id" value="<?= (int)$cm['id'] ?>">
+            <button class="adm-btn adm-btn-sm adm-btn-primary">Aprovar</button>
+          </form>
+          <?php endif; ?>
+          <?php if ($cm['status'] !== 'hidden'): ?>
+          <form method="post" class="inline">
+            <input type="hidden" name="_action"    value="reject_comment">
+            <input type="hidden" name="comment_id" value="<?= (int)$cm['id'] ?>">
+            <button class="adm-btn adm-btn-sm">Rejeitar</button>
+          </form>
+          <?php endif; ?>
+          <form method="post" class="inline" onsubmit="return confirm('Excluir comentário?')">
+            <input type="hidden" name="_action"    value="delete_comment">
+            <input type="hidden" name="comment_id" value="<?= (int)$cm['id'] ?>">
+            <button class="adm-btn adm-btn-sm adm-btn-danger">Excluir</button>
+          </form>
+        </td>
+      </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+    <?php endif; ?>
+    <?php
+    admin_wrap('Comentários', 'comments', ob_get_clean(), $flash);
     exit;
 }
 
