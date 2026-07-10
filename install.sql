@@ -100,6 +100,33 @@ CREATE TABLE home_t (
   FOREIGN KEY (lang_id) REFERENCES languages(id) ON DELETE CASCADE
 ) ENGINE=InnoDB CHARSET=utf8mb4;
 
+CREATE TABLE readers (
+  id                   INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  username             VARCHAR(50)  NOT NULL,
+  email                VARCHAR(200) NOT NULL,
+  password_hash        VARCHAR(255) NOT NULL,
+  email_verified       TINYINT(1)   NOT NULL DEFAULT 0,
+  verify_token         VARCHAR(64),
+  token_expires_at     DATETIME,
+  new_email            VARCHAR(200),
+  new_email_token      VARCHAR(64),
+  new_email_expires_at DATETIME,
+  trusted_at           DATETIME,
+  created_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_username (username),
+  UNIQUE KEY uq_email    (email)
+) ENGINE=InnoDB CHARSET=utf8mb4;
+
+CREATE TABLE reader_sessions (
+  id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  reader_id  INT UNSIGNED NOT NULL,
+  token      VARCHAR(64)  NOT NULL,
+  expires_at DATETIME     NOT NULL,
+  created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_token (token),
+  FOREIGN KEY (reader_id) REFERENCES readers(id) ON DELETE CASCADE
+) ENGINE=InnoDB CHARSET=utf8mb4;
+
 -- Dados iniciais
 INSERT INTO languages (code, name, is_default) VALUES ('pt', 'Português', 1);
 INSERT INTO admin_users (username, password_hash) VALUES
