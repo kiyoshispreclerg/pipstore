@@ -112,9 +112,20 @@ CREATE TABLE readers (
   new_email_token      VARCHAR(64),
   new_email_expires_at DATETIME,
   trusted_at           DATETIME,
+  notify_favorites     TINYINT(1)   NOT NULL DEFAULT 0,
   created_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_username (username),
   UNIQUE KEY uq_email    (email)
+) ENGINE=InnoDB CHARSET=utf8mb4;
+
+CREATE TABLE reader_favorites (
+  id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  reader_id  INT UNSIGNED NOT NULL,
+  type       ENUM('series','book') NOT NULL,
+  target_id  INT UNSIGNED NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_fav (reader_id, type, target_id),
+  FOREIGN KEY (reader_id) REFERENCES readers(id) ON DELETE CASCADE
 ) ENGINE=InnoDB CHARSET=utf8mb4;
 
 CREATE TABLE reader_sessions (
