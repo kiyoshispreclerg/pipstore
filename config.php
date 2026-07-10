@@ -5,7 +5,7 @@ define('DB_PASS', '');
 define('DB_NAME', 'kiyoshipip');
 define('ADMIN_SESSION_KEY', 'stories_admin');
 define('SITE_NAME', 'Histórias');
-define('APP_VERSION', '0.0.0');
+define('APP_VERSION', '1.0.0');
 
 $db = mysqli_connect(DB_HOST, DB_USER, DB_PASS, DB_NAME);
 if (!$db) {
