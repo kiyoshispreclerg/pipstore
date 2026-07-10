@@ -215,6 +215,46 @@ if ($action === 'comment' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
+/* ── Favorito toggle (JSON API) ─────────────────────────────────────── */
+if ($action === 'favorite' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json');
+    if (!$reader) {
+        echo json_encode(['ok' => false, 'msg' => 'Não autenticado.']);
+        exit;
+    }
+    $type      = $_POST['type']      ?? '';
+    $target_id = (int)($_POST['target_id'] ?? 0);
+    if (!in_array($type, ['series', 'book'], true) || $target_id <= 0) {
+        echo json_encode(['ok' => false, 'msg' => 'Dados inválidos.']);
+        exit;
+    }
+    $rid = (int)$reader['id'];
+
+    // Verifica se já é favorito
+    $st = mysqli_prepare($db,
+        'SELECT id FROM reader_favorites WHERE reader_id=? AND type=? AND target_id=? LIMIT 1');
+    mysqli_stmt_bind_param($st, 'isi', $rid, $type, $target_id);
+    mysqli_execute($st);
+    $res = mysqli_stmt_get_result($st);
+    $existing = mysqli_fetch_assoc($res);
+    mysqli_free_result($res); mysqli_stmt_close($st);
+
+    if ($existing) {
+        $st2 = mysqli_prepare($db,
+            'DELETE FROM reader_favorites WHERE reader_id=? AND type=? AND target_id=?');
+        mysqli_stmt_bind_param($st2, 'isi', $rid, $type, $target_id);
+        mysqli_execute($st2); mysqli_stmt_close($st2);
+        echo json_encode(['ok' => true, 'favorited' => false]);
+    } else {
+        $st2 = mysqli_prepare($db,
+            'INSERT IGNORE INTO reader_favorites (reader_id, type, target_id) VALUES (?,?,?)');
+        mysqli_stmt_bind_param($st2, 'isi', $rid, $type, $target_id);
+        mysqli_execute($st2); mysqli_stmt_close($st2);
+        echo json_encode(['ok' => true, 'favorited' => true]);
+    }
+    exit;
+}
+
 /* ── Voto em comentário (JSON API) ──────────────────────────────────── */
 if ($action === 'vote' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json');
