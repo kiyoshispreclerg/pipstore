@@ -77,14 +77,14 @@ function format_content(string $raw): string {
         ['<em>',       '</em>'],
         $escaped
     );
-    // Divide em parágrafos por linha em branco
-    $blocks = preg_split('/\n{2,}/', trim($escaped));
+    // Cada linha não-vazia = um parágrafo; linhas vazias são ignoradas
+    $lines = explode("\n", $escaped);
     $html = '';
     $i = 0;
-    foreach ($blocks as $block) {
-        $block = trim($block);
-        if ($block !== '') {
-            $html .= '<p data-p="' . $i . '">' . str_replace("\n", '<br>', $block) . "</p>\n";
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line !== '') {
+            $html .= '<p data-p="' . $i . '">' . $line . "</p>\n";
             $i++;
         }
     }
