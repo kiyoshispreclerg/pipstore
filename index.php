@@ -456,6 +456,7 @@ function hex_to_rgb(string $hex): string {
 $lang              = get_current_lang($db);
 $all_langs         = get_all_langs($db);
 $GLOBALS['_settings'] = load_settings($db);
+$reader            = current_reader($db);
 $action            = trim($_GET['action'] ?? '');
 $slug              = trim($_GET['slug']   ?? '');
 
@@ -532,6 +533,16 @@ $accent_rgb = hex_to_rgb($accent);
 <footer id="site-footer">
   <div class="footer-inner">
     <span><?= h(SITE_NAME) ?></span>
+    <div class="footer-auth">
+      <?php if ($reader): ?>
+      <span class="footer-username"><?= h($reader['username']) ?></span>
+      <a href="auth.php?a=profile" class="footer-auth-link">Perfil</a>
+      <a href="auth.php?a=logout" class="footer-auth-link">Sair</a>
+      <?php else: ?>
+      <a href="auth.php?a=login"    class="footer-auth-link">Entrar</a>
+      <a href="auth.php?a=register" class="footer-auth-link">Cadastrar</a>
+      <?php endif; ?>
+    </div>
     <?php if (count($all_langs) > 1): ?>
     <select class="lang-select" onchange="changeLang(this.value)" title="Idioma">
       <?php foreach ($all_langs as $l): ?>

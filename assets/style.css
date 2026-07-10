@@ -384,6 +384,23 @@ hr.divider {
   flex-wrap: wrap;
 }
 
+.footer-auth {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+}
+.footer-username {
+  font-weight: 600;
+  color: var(--accent);
+}
+.footer-auth-link {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.footer-auth-link:hover {
+  color: var(--accent);
+}
+
 .lang-select {
   background: transparent;
   border: 1px solid var(--border);
