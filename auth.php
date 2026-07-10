@@ -642,6 +642,16 @@ if ($action === 'profile') {
             auth_redirect('auth.php?a=profile');
         }
 
+        /* Notificações de favoritos */
+        if ($sub === 'notifications') {
+            $notify = isset($_POST['notify_favorites']) ? 1 : 0;
+            $st = mysqli_prepare($db, 'UPDATE readers SET notify_favorites=? WHERE id=?');
+            mysqli_stmt_bind_param($st, 'ii', $notify, $me['id']);
+            mysqli_execute($st); mysqli_stmt_close($st);
+            auth_flash('Preferências de notificação salvas.');
+            auth_redirect('auth.php?a=profile');
+        }
+
         /* Solicitar troca de e-mail */
         if ($sub === 'email') {
             $new_email = trim($_POST['new_email'] ?? '');
@@ -693,6 +703,25 @@ if ($action === 'profile') {
     // Re-lê após possível redirect
     $me = reader_by_id($db, (int)$reader['id']);
     $flash = auth_get_flash();
+
+    // Carrega favoritos com títulos no idioma padrão
+    $favs_list = [];
+    $def_lang = mysqli_fetch_row(mysqli_query($db, 'SELECT id FROM languages WHERE is_default=1 LIMIT 1'));
+    $def_lid  = $def_lang ? (int)$def_lang[0] : 0;
+    if ($def_lid > 0) {
+        $fres = mysqli_query($db,
+            "SELECT rf.type, rf.target_id, rf.created_at,
+                    COALESCE(st.title, bt.title, '') AS title,
+                    COALESCE(s.slug, bk.slug, '') AS slug
+             FROM reader_favorites rf
+             LEFT JOIN series   s  ON rf.type='series' AND s.id=rf.target_id
+             LEFT JOIN series_t st ON s.id=st.series_id AND st.lang_id=$def_lid
+             LEFT JOIN books    bk ON rf.type='book' AND bk.id=rf.target_id
+             LEFT JOIN books_t  bt ON bk.id=bt.book_id AND bt.lang_id=$def_lid
+             WHERE rf.reader_id=" . (int)$me['id'] . "
+             ORDER BY rf.created_at DESC");
+        while ($fr = mysqli_fetch_assoc($fres)) $favs_list[] = $fr;
+    }
 
     ob_start(); ?>
     <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:1.5rem">
@@ -748,6 +777,37 @@ if ($action === 'profile') {
         <input type="email" name="new_email" autocomplete="email" required>
       </div>
       <button type="submit" class="auth-btn" style="margin-top:.5rem">Solicitar troca</button>
+    </form>
+
+    <!-- Favoritos -->
+    <div class="auth-section-title">Meus favoritos</div>
+    <?php if (empty($favs_list)): ?>
+    <p class="auth-hint">Você ainda não marcou nenhuma série ou livro como favorito.</p>
+    <?php else: ?>
+    <ul class="profile-fav-list">
+      <?php foreach ($favs_list as $fav):
+        $label = $fav['type'] === 'series' ? 'Série' : 'Livro';
+        $url   = 'index.php?slug=' . urlencode($fav['slug']);
+      ?>
+      <li>
+        <span class="profile-fav-badge"><?= $label ?></span>
+        <a href="<?= h($url) ?>"><?= h($fav['title'] ?: 'ID ' . $fav['target_id']) ?></a>
+      </li>
+      <?php endforeach; ?>
+    </ul>
+    <?php endif; ?>
+
+    <!-- Notificações -->
+    <div class="auth-section-title">Notificações</div>
+    <form method="post">
+      <?= auth_csrf_field() ?>
+      <input type="hidden" name="_sub" value="notifications">
+      <label class="profile-check-label">
+        <input type="checkbox" name="notify_favorites" value="1"
+               <?= $me['notify_favorites'] ? 'checked' : '' ?>>
+        Notifique-me de novos livros ou capítulos dos meus favoritos
+      </label>
+      <button type="submit" class="auth-btn" style="margin-top:.8rem;display:block">Salvar preferência</button>
     </form>
 
     <div style="margin-top:2rem;padding-top:1rem;border-top:1px solid var(--border)">
