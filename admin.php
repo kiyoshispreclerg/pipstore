@@ -612,6 +612,7 @@ if ($section === 'login') {
 
 /* ── Render helper ───────────────────────────────────────────────────── */
 function admin_wrap(string $title, string $section, string $body, ?array $flash): void {
+    global $db;
     $csrf_input = '<input type="hidden" name="csrf_token" value="'
                 . htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8') . '">';
     $body = preg_replace_callback(
