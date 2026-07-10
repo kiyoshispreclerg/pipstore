@@ -80,10 +80,12 @@ function format_content(string $raw): string {
     // Divide em parágrafos por linha em branco
     $blocks = preg_split('/\n{2,}/', trim($escaped));
     $html = '';
+    $i = 0;
     foreach ($blocks as $block) {
         $block = trim($block);
         if ($block !== '') {
-            $html .= '<p>' . str_replace("\n", '<br>', $block) . "</p>\n";
+            $html .= '<p data-p="' . $i . '">' . str_replace("\n", '<br>', $block) . "</p>\n";
+            $i++;
         }
     }
     return $html;
