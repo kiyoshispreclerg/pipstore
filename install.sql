@@ -127,6 +127,30 @@ CREATE TABLE reader_sessions (
   FOREIGN KEY (reader_id) REFERENCES readers(id) ON DELETE CASCADE
 ) ENGINE=InnoDB CHARSET=utf8mb4;
 
+CREATE TABLE comments (
+  id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  chapter_id      INT UNSIGNED   NOT NULL,
+  paragraph_index SMALLINT UNSIGNED NOT NULL,
+  reader_id       INT UNSIGNED   NOT NULL,
+  body            TEXT           NOT NULL,
+  status          ENUM('pending','visible','hidden') NOT NULL DEFAULT 'pending',
+  score           INT            NOT NULL DEFAULT 0,
+  created_at      DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_chapter_para (chapter_id, paragraph_index),
+  FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
+  FOREIGN KEY (reader_id)  REFERENCES readers(id)  ON DELETE CASCADE
+) ENGINE=InnoDB CHARSET=utf8mb4;
+
+CREATE TABLE comment_votes (
+  id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  comment_id INT UNSIGNED NOT NULL,
+  reader_id  INT UNSIGNED NOT NULL,
+  vote       TINYINT      NOT NULL,
+  UNIQUE KEY uq_vote (comment_id, reader_id),
+  FOREIGN KEY (comment_id) REFERENCES comments(id) ON DELETE CASCADE,
+  FOREIGN KEY (reader_id)  REFERENCES readers(id)  ON DELETE CASCADE
+) ENGINE=InnoDB CHARSET=utf8mb4;
+
 -- Dados iniciais
 INSERT INTO languages (code, name, is_default) VALUES ('pt', 'Português', 1);
 INSERT INTO admin_users (username, password_hash) VALUES
