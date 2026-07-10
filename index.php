@@ -363,6 +363,24 @@ function view_chapter(mysqli $db, string $slug, array $lang): array {
     mysqli_execute($st5);
     $next = stmt_fetch_one($st5);
 
+    // Busca comentários visíveis agrupados por parágrafo
+    $comments_by_para = [];
+    $st6 = mysqli_prepare($db,
+        'SELECT c.id, c.paragraph_index, c.body, c.score, c.status, c.created_at,
+                r.username
+         FROM comments c
+         JOIN readers r ON r.id = c.reader_id
+         WHERE c.chapter_id = ? AND c.status IN (\'visible\',\'hidden\')
+         ORDER BY c.paragraph_index, c.score DESC, c.created_at ASC');
+    mysqli_stmt_bind_param($st6, 'i', $cid);
+    mysqli_execute($st6);
+    $all_comments = stmt_fetch_all($st6);
+    foreach ($all_comments as $cm) {
+        $comments_by_para[(int)$cm['paragraph_index']][] = $cm;
+    }
+
+    $reader_id = (int)($GLOBALS['_reader']['id'] ?? 0);
+
     ob_start(); ?>
     <p style="font-family:var(--font-ui);font-size:.8rem;color:var(--text-muted);margin-bottom:1rem">
       <a href="?action=book&amp;slug=<?= ue($book['book_slug'] ?? '') ?>">← <?= h($book['book_title'] ?? 'Índice') ?></a>
@@ -382,10 +400,30 @@ function view_chapter(mysqli $db, string $slug, array $lang): array {
       <a href="?action=chapter&amp;slug=<?= ue($next['slug']) ?>" class="btn"><?= h($next['title']) ?> →</a>
       <?php endif; ?>
     </nav>
+
+    <!-- Modal de comentários (aberto por JS ao clicar no ícone do parágrafo) -->
+    <div id="comment-modal" role="dialog" aria-modal="true" aria-label="Comentários">
+      <div class="comment-modal-panel">
+        <div class="comment-modal-header">
+          <span id="cm-label">Comentários</span>
+          <button class="comment-modal-close" id="cm-close" aria-label="Fechar">✕</button>
+        </div>
+        <div class="comment-modal-body">
+          <blockquote class="comment-para-quote" id="cm-quote"></blockquote>
+          <div class="comment-list" id="cm-list"></div>
+          <div id="cm-form-area"></div>
+        </div>
+      </div>
+    </div>
+
     <script>
       try {
         localStorage.setItem('lastChapter_' + <?= json_encode($book['book_slug'] ?? '') ?>, <?= json_encode($slug) ?>);
       } catch(e) {}
+      window.__commentsByPara = <?= json_encode($comments_by_para, JSON_THROW_ON_ERROR | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
+      window.__readerId     = <?= $reader_id ?: 'null' ?>;
+      window.__chapterId    = <?= $cid ?>;
+      window.__loginUrl     = <?= json_encode('auth.php?a=login') ?>;
     </script>
     <?php
     return ['title' => $info['title'] . ' — ' . site_setting('site_name', SITE_NAME), 'body' => ob_get_clean(), 'action' => 'chapter'];
@@ -459,6 +497,7 @@ $lang              = get_current_lang($db);
 $all_langs         = get_all_langs($db);
 $GLOBALS['_settings'] = load_settings($db);
 $reader            = current_reader($db);
+$GLOBALS['_reader'] = $reader;
 $action            = trim($_GET['action'] ?? '');
 $slug              = trim($_GET['slug']   ?? '');
 
