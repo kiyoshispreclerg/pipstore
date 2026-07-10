@@ -118,6 +118,7 @@ function view_home(mysqli $db, array $lang): array {
             LEFT JOIN books_t   bt2  ON bt2.book_id  = b.id
             LEFT JOIN series_t  st   ON st.series_id = s.id AND st.lang_id = $lid
             LEFT JOIN series_t  st2  ON st2.series_id = s.id
+            WHERE b.is_published = 1
             GROUP BY b.id
             ORDER BY b.id DESC
             LIMIT 6";
@@ -178,7 +179,7 @@ function view_series(mysqli $db, array $lang): array {
                  FROM books b
                  LEFT JOIN books_t bt  ON bt.book_id  = b.id AND bt.lang_id = $lid
                  LEFT JOIN books_t bt2 ON bt2.book_id = b.id
-                 WHERE b.series_id = $sid
+                 WHERE b.series_id = $sid AND b.is_published = 1
                  GROUP BY b.id
                  ORDER BY b.sort_order, b.id";
         $res2 = mysqli_query($db, $sql2);
@@ -230,7 +231,7 @@ function view_book(mysqli $db, string $slug, array $lang): array {
 
     $st = mysqli_prepare($db, 'SELECT b.id, b.slug, b.cover_image, s.slug AS series_slug
                                 FROM books b JOIN series s ON s.id = b.series_id
-                                WHERE b.slug = ? LIMIT 1');
+                                WHERE b.slug = ? AND b.is_published = 1 LIMIT 1');
     mysqli_stmt_bind_param($st, 's', $slug);
     mysqli_execute($st);
     $book = stmt_fetch_one($st);
@@ -335,18 +336,22 @@ function view_chapter(mysqli $db, string $slug, array $lang): array {
     mysqli_execute($st2);
     $info = stmt_fetch_one($st2);
 
-    // Livro pai (para voltar e para nav)
+    // Livro pai (para voltar e para nav) — 404 se privado
     $st3 = mysqli_prepare($db,
         "SELECT b.slug AS book_slug,
                 COALESCE(bt.title, bt2.title, b.slug) AS book_title
          FROM books b
          LEFT JOIN books_t bt  ON bt.book_id  = b.id AND bt.lang_id = ?
          LEFT JOIN books_t bt2 ON bt2.book_id = b.id
-         WHERE b.id = ?
+         WHERE b.id = ? AND b.is_published = 1
          GROUP BY b.id LIMIT 1");
     mysqli_stmt_bind_param($st3, 'ii', $lid, $bid);
     mysqli_execute($st3);
     $book = stmt_fetch_one($st3);
+
+    if (!$book) {
+        return not_found('Capítulo não encontrado.');
+    }
 
     // Capítulo anterior e próximo
     $st4 = mysqli_prepare($db,

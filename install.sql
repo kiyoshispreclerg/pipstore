@@ -34,8 +34,9 @@ CREATE TABLE books (
   id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   series_id   INT UNSIGNED NOT NULL,
   slug        VARCHAR(100) NOT NULL,
-  cover_image VARCHAR(500),
-  sort_order  INT          NOT NULL DEFAULT 0,
+  cover_image  VARCHAR(500),
+  sort_order   INT         NOT NULL DEFAULT 0,
+  is_published TINYINT(1)  NOT NULL DEFAULT 1,
   UNIQUE KEY uq_slug (slug),
   FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
 ) ENGINE=InnoDB CHARSET=utf8mb4;

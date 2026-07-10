@@ -402,9 +402,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
         $bid   = (int)($_POST['book_id']   ?? 0);
         $srid  = (int)($_POST['series_id'] ?? 0);
         $slug  = trim($_POST['slug'] ?? '');
-        $cover = trim($_POST['cover_image'] ?? '');
-        $sort  = (int)($_POST['sort_order'] ?? 0);
-        $trans = $_POST['trans'] ?? [];
+        $cover  = trim($_POST['cover_image'] ?? '');
+        $sort   = (int)($_POST['sort_order'] ?? 0);
+        $pub    = isset($_POST['is_published']) ? 1 : 0;
+        $trans  = $_POST['trans'] ?? [];
         $default_lid = get_default_lang_id($db);
 
         if ($slug === '') $slug = generate_slug($trans[$default_lid]['title'] ?? '');
@@ -414,13 +415,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
         $is_new_book = ($bid === 0);
         if ($bid > 0) {
             $st = mysqli_prepare($db,
-                'UPDATE books SET series_id=?,slug=?,cover_image=?,sort_order=? WHERE id=?');
-            mysqli_stmt_bind_param($st, 'issii', $srid, $slug, $cover, $sort, $bid);
+                'UPDATE books SET series_id=?,slug=?,cover_image=?,sort_order=?,is_published=? WHERE id=?');
+            mysqli_stmt_bind_param($st, 'issiii', $srid, $slug, $cover, $sort, $pub, $bid);
             mysqli_execute($st); mysqli_stmt_close($st);
         } else {
             $st = mysqli_prepare($db,
-                'INSERT INTO books (series_id,slug,cover_image,sort_order) VALUES (?,?,?,?)');
-            mysqli_stmt_bind_param($st, 'issi', $srid, $slug, $cover, $sort);
+                'INSERT INTO books (series_id,slug,cover_image,sort_order,is_published) VALUES (?,?,?,?,?)');
+            mysqli_stmt_bind_param($st, 'issii', $srid, $slug, $cover, $sort, $pub);
             mysqli_execute($st);
             $bid = (int)mysqli_insert_id($db);
             mysqli_stmt_close($st);
@@ -438,7 +439,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
             mysqli_stmt_bind_param($st2, 'iisss', $bid, $lid2, $title, $copyright, $desc);
             mysqli_execute($st2); mysqli_stmt_close($st2);
         }
-        if ($is_new_book) notify_new_book($db, $bid, $srid, $default_lid);
+        if ($is_new_book && $pub) notify_new_book($db, $bid, $srid, $default_lid);
         flash('Livro salvo.');
         redirect('admin.php?section=books');
     }
@@ -1022,7 +1023,7 @@ if ($section === 'books') {
 
     $default_lid = get_default_lang_id($db);
     $books_list = [];
-    $res = mysqli_query($db, 'SELECT b.id, b.slug, b.sort_order,
+    $res = mysqli_query($db, 'SELECT b.id, b.slug, b.sort_order, b.is_published,
                                       COALESCE(st.title, s.slug) AS series_title,
                                       GROUP_CONCAT(bt.title ORDER BY bt.lang_id SEPARATOR " / ") AS titles
                                FROM books b
@@ -1058,6 +1059,13 @@ if ($section === 'books') {
         <div class="adm-field" style="max-width:80px">
           <label>Ordem
             <input type="number" name="sort_order" value="<?= $edit ? $edit['sort_order'] : 0 ?>">
+          </label>
+        </div>
+        <div class="adm-field" style="max-width:130px;justify-content:flex-end;padding-top:1.4rem">
+          <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer">
+            <input type="checkbox" name="is_published" value="1"
+                   <?= (!$edit || $edit['is_published']) ? 'checked' : '' ?>>
+            Publicado
           </label>
         </div>
       </div>
@@ -1099,7 +1107,7 @@ if ($section === 'books') {
     </form>
 
     <table class="adm-table">
-      <thead><tr><th>Série</th><th>Slug</th><th>Títulos</th><th>Ord.</th><th></th></tr></thead>
+      <thead><tr><th>Série</th><th>Slug</th><th>Títulos</th><th>Ord.</th><th>Status</th><th></th></tr></thead>
       <tbody>
       <?php foreach ($books_list as $b): ?>
       <tr>
@@ -1107,6 +1115,7 @@ if ($section === 'books') {
         <td><code><?= h($b['slug']) ?></code></td>
         <td><?= h($b['titles'] ?? '') ?></td>
         <td><?= $b['sort_order'] ?></td>
+        <td><?= $b['is_published'] ? '<span style="color:var(--adm-ok,#16a34a)">✓ Público</span>' : '<span style="color:var(--adm-muted)">— Privado</span>' ?></td>
         <td class="adm-td-actions">
           <a href="admin.php?section=chapters&amp;book_id=<?= $b['id'] ?>" class="adm-btn adm-btn-sm">Capítulos</a>
           <form method="post" class="inline">
