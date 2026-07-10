@@ -8,6 +8,7 @@
   document.addEventListener('DOMContentLoaded', function () {
     setupToggleButtons();
     highlightLastReadChapter();
+    setupComments();
   });
 
   /* ── Preferências ───────────────────────────────────────────────────── */
@@ -98,6 +99,203 @@
       var btn = list.querySelector('[data-chapter="' + last + '"]');
       if (btn) btn.classList.add('last-read');
     } catch (e) {}
+  }
+
+  /* ── Sistema de comentários ─────────────────────────────────────────── */
+
+  function setupComments() {
+    if (typeof window.__chapterId === 'undefined') return;
+
+    var byPara    = window.__commentsByPara || {};
+    var modal     = document.getElementById('comment-modal');
+    var cmClose   = document.getElementById('cm-close');
+    var cmLabel   = document.getElementById('cm-label');
+    var cmQuote   = document.getElementById('cm-quote');
+    var cmList    = document.getElementById('cm-list');
+    var cmFormArea= document.getElementById('cm-form-area');
+    var activePara= null;
+
+    if (!modal) return;
+
+    // Adiciona botão em cada parágrafo com data-p
+    var paras = document.querySelectorAll('.content-body p[data-p]');
+    paras.forEach(function (p) {
+      var idx = parseInt(p.getAttribute('data-p'), 10);
+      var comments = byPara[idx] || [];
+      var count = comments.filter(function (c) { return c.status === 'visible'; }).length;
+
+      var btn = document.createElement('button');
+      btn.className = 'para-comment-btn' + (count > 0 ? ' has-comments' : '');
+      btn.setAttribute('type', 'button');
+      btn.setAttribute('aria-label', count > 0
+        ? count + ' comentário(s) — clique para ver'
+        : 'Adicionar comentário');
+      btn.innerHTML = count > 0 ? ('💬 ' + count) : '+';
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        openModal(idx, p.textContent.trim(), comments);
+      });
+      p.appendChild(btn);
+    });
+
+    // Fecha ao clicar no backdrop ou no X
+    cmClose.addEventListener('click', closeModal);
+    modal.addEventListener('click', function (e) {
+      if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeModal();
+    });
+
+    function openModal(paraIdx, paraText, comments) {
+      activePara = paraIdx;
+      var count = comments.filter(function (c) { return c.status === 'visible'; }).length;
+      cmLabel.textContent = count > 0
+        ? count + ' comentário' + (count !== 1 ? 's' : '') + ' — parágrafo ' + (paraIdx + 1)
+        : 'Parágrafo ' + (paraIdx + 1);
+      cmQuote.textContent = paraText.length > 200 ? paraText.slice(0, 200) + '…' : paraText;
+      renderCommentList(comments);
+      renderForm(paraIdx);
+      modal.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal() {
+      modal.classList.remove('open');
+      document.body.style.overflow = '';
+      activePara = null;
+    }
+
+    function renderCommentList(comments) {
+      var visible = comments.filter(function (c) { return c.status !== 'pending'; });
+      if (visible.length === 0) {
+        cmList.innerHTML = '<p class="comment-empty">Nenhum comentário ainda.</p>';
+        return;
+      }
+      cmList.innerHTML = '';
+      visible.forEach(function (c) {
+        var card = document.createElement('div');
+        if (c.status === 'hidden') {
+          card.className = 'comment-card hidden-comment';
+          card.innerHTML = '<span class="comment-body">Comentário ocultado pela comunidade. '
+            + '<button type="button" class="comment-reveal-btn" style="background:none;border:none;'
+            + 'color:var(--accent);cursor:pointer;font-size:.8rem;font-family:var(--font-ui)">Mostrar</button></span>';
+          var revBtn = card.querySelector('.comment-reveal-btn');
+          revBtn.addEventListener('click', function () {
+            renderHidden(card, c);
+          });
+        } else {
+          card.className = 'comment-card';
+          card.innerHTML =
+            '<div class="comment-author">' + esc(c.username) + '</div>'
+            + '<div class="comment-body">' + esc(c.body) + '</div>'
+            + '<div class="comment-meta">'
+            + '<button class="comment-vote-btn" data-vote="1" data-id="' + c.id + '">▲</button>'
+            + '<span class="comment-score">' + c.score + '</span>'
+            + '<button class="comment-vote-btn" data-vote="-1" data-id="' + c.id + '">▼</button>'
+            + '</div>';
+          setupVoteButtons(card, c);
+        }
+        cmList.appendChild(card);
+      });
+    }
+
+    function renderHidden(card, c) {
+      card.className = 'comment-card';
+      card.innerHTML =
+        '<div class="comment-author">' + esc(c.username) + '</div>'
+        + '<div class="comment-body">' + esc(c.body) + '</div>'
+        + '<div class="comment-meta">'
+        + '<button class="comment-vote-btn" data-vote="1" data-id="' + c.id + '">▲</button>'
+        + '<span class="comment-score">' + c.score + '</span>'
+        + '<button class="comment-vote-btn" data-vote="-1" data-id="' + c.id + '">▼</button>'
+        + '</div>';
+      setupVoteButtons(card, c);
+    }
+
+    function setupVoteButtons(card, c) {
+      card.querySelectorAll('.comment-vote-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (!window.__readerId) {
+            window.location.href = window.__loginUrl || 'auth.php?a=login';
+            return;
+          }
+          submitVote(parseInt(btn.getAttribute('data-id'), 10),
+                     parseInt(btn.getAttribute('data-vote'), 10),
+                     card.querySelector('.comment-score'));
+        });
+      });
+    }
+
+    function renderForm(paraIdx) {
+      if (!window.__readerId) {
+        cmFormArea.innerHTML =
+          '<div class="comment-login-prompt">Para comentar, '
+          + '<a href="' + esc(window.__loginUrl || 'auth.php?a=login') + '">entre</a> ou '
+          + '<a href="auth.php?a=register">cadastre-se</a>.</div>';
+        return;
+      }
+      cmFormArea.innerHTML =
+        '<div class="comment-form">'
+        + '<textarea placeholder="Seu comentário…" maxlength="1000" rows="3"></textarea>'
+        + '<div class="comment-form-actions">'
+        + '<button class="comment-submit" type="button">Publicar</button>'
+        + '<button class="comment-cancel" type="button">Cancelar</button>'
+        + '</div></div>';
+      var ta     = cmFormArea.querySelector('textarea');
+      var submit = cmFormArea.querySelector('.comment-submit');
+      var cancel = cmFormArea.querySelector('.comment-cancel');
+      cancel.addEventListener('click', function () { ta.value = ''; });
+      submit.addEventListener('click', function () {
+        var body = ta.value.trim();
+        if (!body) return;
+        submit.disabled = true;
+        submitComment(paraIdx, body, function (ok, msg) {
+          submit.disabled = false;
+          if (ok) {
+            ta.value = '';
+            var notice = document.createElement('p');
+            notice.className = 'comment-empty';
+            notice.style.color = 'var(--accent)';
+            notice.textContent = msg || 'Comentário enviado! Aguarde aprovação.';
+            cmFormArea.insertBefore(notice, cmFormArea.firstChild);
+            setTimeout(function () { notice.remove(); }, 4000);
+          } else {
+            alert(msg || 'Erro ao enviar comentário.');
+          }
+        });
+      });
+    }
+
+    function submitComment(paraIdx, body, cb) {
+      var fd = new FormData();
+      fd.append('chapter_id', window.__chapterId);
+      fd.append('paragraph_index', paraIdx);
+      fd.append('body', body);
+      fetch('auth.php?a=comment', { method: 'POST', body: fd, credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { cb(d.ok, d.msg); })
+        .catch(function () { cb(false, 'Erro de rede.'); });
+    }
+
+    function submitVote(commentId, vote, scoreEl) {
+      var fd = new FormData();
+      fd.append('comment_id', commentId);
+      fd.append('vote', vote);
+      fetch('auth.php?a=vote', { method: 'POST', body: fd, credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d.ok && scoreEl) scoreEl.textContent = d.score;
+        });
+    }
+
+    function esc(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
   }
 
   /* ── Troca de idioma ─────────────────────────────────────────────────── */

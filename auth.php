@@ -165,6 +165,116 @@ $action    = trim($_GET['a'] ?? '');
 $reader    = current_reader($db);
 $flash     = auth_get_flash();
 
+/* ── Comentário (JSON API) ───────────────────────────────────────────── */
+if ($action === 'comment' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json');
+    if (!$reader) {
+        echo json_encode(['ok' => false, 'msg' => 'Não autenticado.']);
+        exit;
+    }
+    $chapter_id = (int)($_POST['chapter_id'] ?? 0);
+    $para_idx   = (int)($_POST['paragraph_index'] ?? 0);
+    $body       = trim($_POST['body'] ?? '');
+
+    if ($chapter_id <= 0 || $body === '') {
+        echo json_encode(['ok' => false, 'msg' => 'Dados inválidos.']);
+        exit;
+    }
+    if (mb_strlen($body) > 1000) {
+        echo json_encode(['ok' => false, 'msg' => 'Comentário muito longo (máx. 1000 caracteres).']);
+        exit;
+    }
+
+    // Valida que o capítulo existe
+    $st = mysqli_prepare($db, 'SELECT id FROM chapters WHERE id = ? LIMIT 1');
+    mysqli_stmt_bind_param($st, 'i', $chapter_id);
+    mysqli_execute($st);
+    $res = mysqli_stmt_get_result($st);
+    $chk = mysqli_fetch_assoc($res);
+    mysqli_free_result($res); mysqli_stmt_close($st);
+    if (!$chk) {
+        echo json_encode(['ok' => false, 'msg' => 'Capítulo não encontrado.']);
+        exit;
+    }
+
+    $rid    = (int)$reader['id'];
+    $status = $reader['trusted_at'] ? 'visible' : 'pending';
+
+    $st2 = mysqli_prepare($db,
+        'INSERT INTO comments (chapter_id, paragraph_index, reader_id, body, status)
+         VALUES (?,?,?,?,?)');
+    mysqli_stmt_bind_param($st2, 'iiiss', $chapter_id, $para_idx, $rid, $body, $status);
+    mysqli_execute($st2);
+    $new_id = (int)mysqli_insert_id($db);
+    mysqli_stmt_close($st2);
+
+    $msg = $status === 'visible'
+        ? 'Comentário publicado!'
+        : 'Comentário enviado! Aguarde aprovação.';
+    echo json_encode(['ok' => true, 'msg' => $msg, 'status' => $status, 'id' => $new_id]);
+    exit;
+}
+
+/* ── Voto em comentário (JSON API) ──────────────────────────────────── */
+if ($action === 'vote' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json');
+    if (!$reader) {
+        echo json_encode(['ok' => false, 'msg' => 'Não autenticado.']);
+        exit;
+    }
+    $comment_id = (int)($_POST['comment_id'] ?? 0);
+    $vote       = (int)($_POST['vote'] ?? 0);
+
+    if ($comment_id <= 0 || !in_array($vote, [1, -1], true)) {
+        echo json_encode(['ok' => false, 'msg' => 'Dados inválidos.']);
+        exit;
+    }
+
+    $rid = (int)$reader['id'];
+
+    // Não pode votar no próprio comentário
+    $st = mysqli_prepare($db, 'SELECT reader_id FROM comments WHERE id = ? LIMIT 1');
+    mysqli_stmt_bind_param($st, 'i', $comment_id);
+    mysqli_execute($st);
+    $res = mysqli_stmt_get_result($st);
+    $cm  = mysqli_fetch_assoc($res);
+    mysqli_free_result($res); mysqli_stmt_close($st);
+    if (!$cm) { echo json_encode(['ok' => false, 'msg' => 'Comentário não encontrado.']); exit; }
+    if ((int)$cm['reader_id'] === $rid) { echo json_encode(['ok' => false, 'msg' => 'Não pode votar no próprio comentário.']); exit; }
+
+    // Upsert do voto
+    $st2 = mysqli_prepare($db,
+        'INSERT INTO comment_votes (comment_id, reader_id, vote) VALUES (?,?,?)
+         ON DUPLICATE KEY UPDATE vote = VALUES(vote)');
+    mysqli_stmt_bind_param($st2, 'iii', $comment_id, $rid, $vote);
+    mysqli_execute($st2); mysqli_stmt_close($st2);
+
+    // Recalcula score
+    $st3 = mysqli_prepare($db,
+        'SELECT COALESCE(SUM(vote),0) AS s FROM comment_votes WHERE comment_id = ?');
+    mysqli_stmt_bind_param($st3, 'i', $comment_id);
+    mysqli_execute($st3);
+    $res3  = mysqli_stmt_get_result($st3);
+    $score = (int)(mysqli_fetch_assoc($res3)['s'] ?? 0);
+    mysqli_free_result($res3); mysqli_stmt_close($st3);
+
+    $new_status = $score <= -5 ? 'hidden' : null;
+
+    $st4 = mysqli_prepare($db,
+        $new_status
+            ? 'UPDATE comments SET score=?, status=? WHERE id=?'
+            : 'UPDATE comments SET score=? WHERE id=?');
+    if ($new_status) {
+        mysqli_stmt_bind_param($st4, 'isi', $score, $new_status, $comment_id);
+    } else {
+        mysqli_stmt_bind_param($st4, 'ii', $score, $comment_id);
+    }
+    mysqli_execute($st4); mysqli_stmt_close($st4);
+
+    echo json_encode(['ok' => true, 'score' => $score]);
+    exit;
+}
+
 /* ── Logout ──────────────────────────────────────────────────────────── */
 if ($action === 'logout') {
     destroy_session($db);
