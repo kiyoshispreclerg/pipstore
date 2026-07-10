@@ -162,6 +162,13 @@ CREATE TABLE comment_votes (
   FOREIGN KEY (reader_id)  REFERENCES readers(id)  ON DELETE CASCADE
 ) ENGINE=InnoDB CHARSET=utf8mb4;
 
+CREATE TABLE schema_migrations (
+  id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  filename   VARCHAR(200) NOT NULL,
+  applied_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_filename (filename)
+) ENGINE=InnoDB CHARSET=utf8mb4;
+
 -- Dados iniciais
 INSERT INTO languages (code, name, is_default) VALUES ('pt', 'Português', 1);
 INSERT INTO admin_users (username, password_hash) VALUES

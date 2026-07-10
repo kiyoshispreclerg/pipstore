@@ -50,6 +50,42 @@ function send_mail(mysqli $db, string $to, string $subject, string $html): bool 
     return @mail($to, $subject, $html, $headers);
 }
 
+function run_pending_migrations(mysqli $db): void {
+    mysqli_query($db, "CREATE TABLE IF NOT EXISTS schema_migrations (
+        id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        filename   VARCHAR(200) NOT NULL,
+        applied_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_filename (filename)
+    ) ENGINE=InnoDB CHARSET=utf8mb4");
+
+    $applied = [];
+    $res = mysqli_query($db, 'SELECT filename FROM schema_migrations ORDER BY filename');
+    if ($res) { while ($r = mysqli_fetch_row($res)) $applied[] = $r[0]; }
+
+    $dir   = __DIR__ . '/migrations';
+    $files = glob($dir . '/*.sql');
+    if (!$files) return;
+    sort($files);
+
+    foreach ($files as $file) {
+        $name = basename($file);
+        if (in_array($name, $applied, true)) continue;
+
+        $sql = file_get_contents($file);
+        mysqli_multi_query($db, $sql);
+        // Drena todos os result-sets antes de continuar
+        do {
+            $r = mysqli_store_result($db);
+            if ($r) mysqli_free_result($r);
+        } while (mysqli_more_results($db) && mysqli_next_result($db));
+
+        $st = mysqli_prepare($db, 'INSERT IGNORE INTO schema_migrations (filename) VALUES (?)');
+        mysqli_stmt_bind_param($st, 's', $name);
+        mysqli_execute($st);
+        mysqli_stmt_close($st);
+    }
+}
+
 function load_settings(mysqli $db): array {
     $defaults = ['site_name' => SITE_NAME, 'accent_color' => '#2e7d52', 'logo_url' => ''];
     $res = mysqli_query($db, 'SELECT `key`, `value` FROM site_settings');

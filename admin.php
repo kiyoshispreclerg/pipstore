@@ -2,6 +2,7 @@
 declare(strict_types=1);
 session_start();
 require __DIR__ . '/config.php';
+run_pending_migrations($db);
 
 if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
