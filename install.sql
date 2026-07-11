@@ -58,7 +58,7 @@ CREATE TABLE chapters (
   book_id    INT UNSIGNED NOT NULL,
   slug       VARCHAR(100) NOT NULL,
   sort_order INT          NOT NULL DEFAULT 0,
-  UNIQUE KEY uq_slug (slug),
+  UNIQUE KEY uq_slug (book_id, slug),
   FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
 ) ENGINE=InnoDB CHARSET=utf8mb4;
 

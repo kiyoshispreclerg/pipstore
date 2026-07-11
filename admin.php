@@ -214,7 +214,7 @@ function notify_new_chapter(mysqli $db, int $chapter_id, int $book_id, int $defa
     $base = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http')
           . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost')
           . rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/'), '/') . '/';
-    $url  = $base . 'index.php?slug=' . rawurlencode($chapter_slug);
+    $url  = $base . 'index.php?action=chapter&slug=' . rawurlencode($chapter_slug) . '&book=' . rawurlencode($book_slug);
 
     $nres = mysqli_query($db,
         "SELECT DISTINCT r.id, r.email, r.username

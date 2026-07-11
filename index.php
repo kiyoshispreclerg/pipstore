@@ -292,7 +292,7 @@ function view_book(mysqli $db, string $slug, array $lang): array {
     <?php if ($chapters): ?>
     <div class="chapter-list" data-book-slug="<?= h($book['slug']) ?>">
       <?php foreach ($chapters as $i => $ch): ?>
-      <a href="?action=chapter&amp;slug=<?= ue($ch['slug']) ?>"
+      <a href="?action=chapter&amp;slug=<?= ue($ch['slug']) ?>&amp;book=<?= ue($book['slug']) ?>"
          class="chapter-btn"
          data-chapter="<?= h($ch['slug']) ?>">
         <?= h($ch['title']) ?>
@@ -310,9 +310,18 @@ function view_book(mysqli $db, string $slug, array $lang): array {
 function view_chapter(mysqli $db, string $slug, array $lang): array {
     $lid = (int)$lang['id'];
 
-    $st = mysqli_prepare($db, 'SELECT c.id, c.book_id, c.slug, c.sort_order
-                                FROM chapters c WHERE c.slug = ? LIMIT 1');
-    mysqli_stmt_bind_param($st, 's', $slug);
+    $book_slug = trim($_GET['book'] ?? '');
+    if ($book_slug !== '') {
+        $st = mysqli_prepare($db, 'SELECT c.id, c.book_id, c.slug, c.sort_order
+                                    FROM chapters c
+                                    JOIN books b ON b.id = c.book_id
+                                    WHERE c.slug = ? AND b.slug = ? LIMIT 1');
+        mysqli_stmt_bind_param($st, 'ss', $slug, $book_slug);
+    } else {
+        $st = mysqli_prepare($db, 'SELECT c.id, c.book_id, c.slug, c.sort_order
+                                    FROM chapters c WHERE c.slug = ? LIMIT 1');
+        mysqli_stmt_bind_param($st, 's', $slug);
+    }
     mysqli_execute($st);
     $ch = stmt_fetch_one($st);
 
@@ -409,12 +418,12 @@ function view_chapter(mysqli $db, string $slug, array $lang): array {
     </div>
     <nav class="chapter-nav">
       <?php if ($prev): ?>
-      <a href="?action=chapter&amp;slug=<?= ue($prev['slug']) ?>" class="btn">← <?= h($prev['title']) ?></a>
+      <a href="?action=chapter&amp;slug=<?= ue($prev['slug']) ?>&amp;book=<?= ue($book['book_slug']) ?>" class="btn">← <?= h($prev['title']) ?></a>
       <?php else: ?>
       <span></span>
       <?php endif; ?>
       <?php if ($next): ?>
-      <a href="?action=chapter&amp;slug=<?= ue($next['slug']) ?>" class="btn"><?= h($next['title']) ?> →</a>
+      <a href="?action=chapter&amp;slug=<?= ue($next['slug']) ?>&amp;book=<?= ue($book['book_slug']) ?>" class="btn"><?= h($next['title']) ?> →</a>
       <?php endif; ?>
     </nav>
 
