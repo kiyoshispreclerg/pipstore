@@ -178,12 +178,17 @@ hr.divider {
   margin-bottom: 1.5rem;
 }
 
-.book-copyright {
+.book-meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: .5rem;
+  margin-bottom: .6rem;
   font-size: .78rem;
   color: var(--text-muted);
-  margin-bottom: .6rem;
   letter-spacing: .01em;
 }
+.book-wordcount { opacity: .75; white-space: nowrap; }
 
 .content-body p {
   margin-bottom: 1.1em;

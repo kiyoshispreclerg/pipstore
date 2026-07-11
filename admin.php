@@ -181,6 +181,16 @@ function get_all_langs(mysqli $db): array {
     return $r;
 }
 
+function wc(string $text): int {
+    preg_match_all('/\S+/u', $text, $m);
+    return count($m[0]);
+}
+
+function wc_fmt(int $n): string {
+    if ($n === 0) return '—';
+    return number_format($n, 0, ',', '.') . ' pal.';
+}
+
 function get_default_lang_id(mysqli $db): int {
     $res = mysqli_query($db, 'SELECT id FROM languages WHERE is_default = 1 LIMIT 1');
     $row = mysqli_fetch_assoc($res);
@@ -1132,14 +1142,25 @@ if ($section === 'books') {
 
     /* ── Lista ── */
     $books_list = [];
-    $res = mysqli_query($db, 'SELECT b.id, b.slug, b.sort_order, b.is_published,
+    $res = mysqli_query($db, "SELECT b.id, b.slug, b.sort_order, b.is_published,
                                       COALESCE(st.title, s.slug) AS series_title,
-                                      GROUP_CONCAT(bt.title ORDER BY bt.lang_id SEPARATOR " / ") AS titles
+                                      GROUP_CONCAT(DISTINCT bt.title ORDER BY bt.lang_id SEPARATOR ' / ') AS titles,
+                                      (SELECT COALESCE(SUM(
+                                          CASE WHEN TRIM(COALESCE(ct.content,'')) = '' THEN 0
+                                          ELSE CHAR_LENGTH(COALESCE(ct.content,''))
+                                               - CHAR_LENGTH(REPLACE(COALESCE(ct.content,''), ' ', ''))
+                                               + CHAR_LENGTH(COALESCE(ct.content,''))
+                                               - CHAR_LENGTH(REPLACE(COALESCE(ct.content,''), '\n', ''))
+                                               + 1 END
+                                       ), 0)
+                                       FROM chapters c2
+                                       JOIN chapters_t ct ON ct.chapter_id = c2.id AND ct.lang_id = $default_lid
+                                       WHERE c2.book_id = b.id) AS total_words
                                FROM books b
                                JOIN series s ON s.id = b.series_id
                                LEFT JOIN series_t st ON st.series_id = s.id
                                LEFT JOIN books_t  bt ON bt.book_id   = b.id
-                               GROUP BY b.id ORDER BY s.sort_order, b.sort_order, b.id');
+                               GROUP BY b.id ORDER BY s.sort_order, b.sort_order, b.id");
     while ($r = mysqli_fetch_assoc($res)) $books_list[] = $r;
 
     ob_start(); ?>
@@ -1147,7 +1168,7 @@ if ($section === 'books') {
       <a href="admin.php?section=books&amp;new=1" class="adm-btn adm-btn-primary">+ Novo Livro</a>
     </div>
     <table class="adm-table">
-      <thead><tr><th>Série</th><th>Slug</th><th>Títulos</th><th>Ord.</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Série</th><th>Slug</th><th>Títulos</th><th>Ord.</th><th>Status</th><th>Palavras</th><th></th></tr></thead>
       <tbody>
       <?php foreach ($books_list as $b): ?>
       <tr>
@@ -1156,6 +1177,7 @@ if ($section === 'books') {
         <td><?= h($b['titles'] ?? '') ?></td>
         <td><?= $b['sort_order'] ?></td>
         <td><?= $b['is_published'] ? '<span style="color:var(--adm-ok,#16a34a)">✓ Público</span>' : '<span style="color:var(--adm-muted)">— Privado</span>' ?></td>
+        <td style="white-space:nowrap;color:var(--adm-muted);font-size:.82rem"><?= wc_fmt((int)$b['total_words']) ?></td>
         <td class="adm-td-actions">
           <a href="admin.php?section=chapters&amp;book_id=<?= $b['id'] ?>" class="adm-btn adm-btn-sm">Capítulos</a>
           <form method="post" class="inline">
@@ -1224,9 +1246,11 @@ if ($section === 'chapters') {
     if ($filter_bid > 0) {
         $res = mysqli_query($db,
             "SELECT c.id, c.slug, c.sort_order,
-                    GROUP_CONCAT(ct.title ORDER BY ct.lang_id SEPARATOR ' / ') AS titles
+                    GROUP_CONCAT(ct.title ORDER BY ct.lang_id SEPARATOR ' / ') AS titles,
+                    ctd.content AS content
              FROM chapters c
-             LEFT JOIN chapters_t ct ON ct.chapter_id = c.id
+             LEFT JOIN chapters_t ct  ON ct.chapter_id  = c.id
+             LEFT JOIN chapters_t ctd ON ctd.chapter_id = c.id AND ctd.lang_id = $default_lid
              WHERE c.book_id = $filter_bid
              GROUP BY c.id ORDER BY c.sort_order, c.id");
         while ($r = mysqli_fetch_assoc($res)) $chapters_list[] = $r;
@@ -1325,7 +1349,7 @@ if ($section === 'chapters') {
          class="adm-btn adm-btn-primary">+ Novo Capítulo</a>
     </div>
     <table class="adm-table">
-      <thead><tr><th>#</th><th>Slug</th><th>Títulos</th><th>Ord.</th><th></th></tr></thead>
+      <thead><tr><th>#</th><th>Slug</th><th>Títulos</th><th>Ord.</th><th>Palavras</th><th></th></tr></thead>
       <tbody>
       <?php foreach ($chapters_list as $i => $ch): ?>
       <tr>
@@ -1333,6 +1357,7 @@ if ($section === 'chapters') {
         <td><code><?= h($ch['slug']) ?></code></td>
         <td><?= h($ch['titles'] ?? '') ?></td>
         <td><?= $ch['sort_order'] ?></td>
+        <td style="white-space:nowrap;color:var(--adm-muted);font-size:.82rem"><?= wc_fmt(wc($ch['content'] ?? '')) ?></td>
         <td class="adm-td-actions">
           <form method="post" class="inline">
             <input type="hidden" name="_action" value="move_chapter">

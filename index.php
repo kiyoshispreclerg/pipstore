@@ -255,6 +255,21 @@ function view_book(mysqli $db, string $slug, array $lang): array {
     mysqli_execute($st2);
     $info = stmt_fetch_one($st2);
 
+    // Total de palavras do livro (idioma atual, aproximação SQL)
+    $wc_row = mysqli_fetch_row(mysqli_query($db,
+        "SELECT COALESCE(SUM(
+            CASE WHEN TRIM(COALESCE(ct.content,'')) = '' THEN 0
+            ELSE CHAR_LENGTH(COALESCE(ct.content,''))
+                 - CHAR_LENGTH(REPLACE(COALESCE(ct.content,''), ' ', ''))
+                 + CHAR_LENGTH(COALESCE(ct.content,''))
+                 - CHAR_LENGTH(REPLACE(COALESCE(ct.content,''), '\n', ''))
+                 + 1 END
+         ), 0)
+         FROM chapters c
+         JOIN chapters_t ct ON ct.chapter_id = c.id AND ct.lang_id = $lid
+         WHERE c.book_id = $bid"));
+    $total_words = $wc_row ? (int)$wc_row[0] : 0;
+
     // Capítulos
     $st3 = mysqli_prepare($db,
         "SELECT c.id, c.slug, c.sort_order,
@@ -279,8 +294,13 @@ function view_book(mysqli $db, string $slug, array $lang): array {
           <h1 class="page-title" style="flex:1"><?= h($info['title']) ?></h1>
           <?= fav_btn('book', $bid) ?>
         </div>
-        <?php if ($info['copyright']): ?>
-        <p class="book-copyright"><?= h($info['copyright']) ?></p>
+        <?php if ($info['copyright'] || $total_words > 0): ?>
+        <div class="book-meta-row">
+          <span class="book-copyright"><?= h($info['copyright']) ?></span>
+          <?php if ($total_words > 0): ?>
+          <span class="book-wordcount"><?= number_format($total_words, 0, ',', '.') ?> palavras</span>
+          <?php endif; ?>
+        </div>
         <?php endif; ?>
         <?php if ($info['description']): ?>
         <p class="page-subtitle"><?= h($info['description']) ?></p>
