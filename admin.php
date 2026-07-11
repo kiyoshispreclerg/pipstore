@@ -693,7 +693,7 @@ if ($section === 'login') {
 }
 
 /* ── Render helper ───────────────────────────────────────────────────── */
-function admin_wrap(string $title, string $section, string $body, ?array $flash): void {
+function admin_wrap(string $title, string $section, string $body, ?array $flash, array $crumbs = []): void {
     global $db;
     $csrf_input = '<input type="hidden" name="csrf_token" value="'
                 . htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8') . '">';
@@ -738,6 +738,18 @@ function admin_wrap(string $title, string $section, string $body, ?array $flash)
     <a href="admin.php?_action=logout">Sair</a>
   </nav>
   <main class="adm-main">
+    <?php if ($crumbs): ?>
+    <nav class="adm-breadcrumb">
+      <?php foreach ($crumbs as $i => $c): ?>
+      <?php if ($i > 0): ?><span class="adm-bc-sep">›</span><?php endif; ?>
+      <?php if (!empty($c['url'])): ?>
+        <a href="<?= h($c['url']) ?>"><?= h($c['label']) ?></a>
+      <?php else: ?>
+        <span><?= h($c['label']) ?></span>
+      <?php endif; ?>
+      <?php endforeach; ?>
+    </nav>
+    <?php endif; ?>
     <h1 class="adm-title"><?= h($title) ?></h1>
     <?php if ($flash): ?>
     <div class="adm-flash adm-flash-<?= h($flash['type']) ?>"><?= h($flash['msg']) ?></div>
@@ -899,8 +911,10 @@ if ($section === 'languages') {
 
 /* ── Séries ─────────────────────────────────────────────────────────── */
 if ($section === 'series') {
-    $all_langs = get_all_langs($db);
-    $edit_id   = (int)($_GET['edit'] ?? 0);
+    $all_langs   = get_all_langs($db);
+    $default_lid = get_default_lang_id($db);
+    $edit_id     = (int)($_GET['edit'] ?? 0);
+    $is_new      = isset($_GET['new']);
     $edit = $edit_trans = null;
 
     if ($edit_id > 0) {
@@ -909,13 +923,62 @@ if ($section === 'series') {
         if ($edit) {
             $res = mysqli_query($db,
                 "SELECT lang_id, title, description FROM series_t WHERE series_id = $edit_id");
-            while ($r = mysqli_fetch_assoc($res)) {
-                $edit_trans[$r['lang_id']] = $r;
-            }
+            while ($r = mysqli_fetch_assoc($res)) $edit_trans[$r['lang_id']] = $r;
         }
     }
 
-    $default_lid = get_default_lang_id($db);
+    /* ── Formulário (novo ou editar) ── */
+    if ($edit_id > 0 || $is_new) {
+        $page_label = $edit ? 'Editar: ' . h($edit['slug']) : 'Nova Série';
+        ob_start(); ?>
+        <form method="post" class="adm-form adm-card">
+          <input type="hidden" name="_action" value="save_series">
+          <input type="hidden" name="series_id" value="<?= $edit ? $edit['id'] : 0 ?>">
+          <div class="adm-fields-row">
+            <div class="adm-field">
+              <label>Slug (URL)
+                <input type="text" name="slug" placeholder="gerado automaticamente"
+                       value="<?= $edit ? h($edit['slug']) : '' ?>">
+              </label>
+            </div>
+            <div class="adm-field" style="max-width:100px">
+              <label>Ordem
+                <input type="number" name="sort_order" value="<?= $edit ? $edit['sort_order'] : 0 ?>">
+              </label>
+            </div>
+          </div>
+          <?php foreach ($all_langs as $l):
+                $is_def = ((int)$l['id'] === $default_lid); ?>
+          <fieldset class="adm-fieldset">
+            <legend><?= h($l['name']) ?> (<?= h($l['code']) ?>)<?= $is_def ? ' — idioma padrão' : '' ?></legend>
+            <div class="adm-field">
+              <label>Título<?= $is_def ? ' <span style="color:var(--adm-accent)">*</span>' : '' ?>
+                <input type="text" name="trans[<?= $l['id'] ?>][title]"
+                       <?= $is_def ? 'required' : '' ?>
+                       value="<?= h($edit_trans[$l['id']]['title'] ?? '') ?>">
+              </label>
+            </div>
+            <div class="adm-field">
+              <label>Descrição
+                <textarea name="trans[<?= $l['id'] ?>][description]" rows="2"><?= h($edit_trans[$l['id']]['description'] ?? '') ?></textarea>
+              </label>
+            </div>
+          </fieldset>
+          <?php endforeach; ?>
+          <div class="adm-actions">
+            <button type="submit" class="adm-btn adm-btn-primary"><?= $edit ? 'Atualizar' : 'Criar Série' ?></button>
+            <a href="admin.php?section=series" class="adm-btn">Cancelar</a>
+          </div>
+        </form>
+        <?php
+        admin_wrap($page_label, 'series', ob_get_clean(), $flash, [
+            ['label' => 'Séries', 'url' => 'admin.php?section=series'],
+            ['label' => $page_label],
+        ]);
+        exit;
+    }
+
+    /* ── Lista ── */
     $series_list = [];
     $res = mysqli_query($db, 'SELECT s.id, s.slug, s.sort_order,
                                       GROUP_CONCAT(st.title ORDER BY st.lang_id SEPARATOR " / ") AS titles
@@ -925,48 +988,9 @@ if ($section === 'series') {
     while ($r = mysqli_fetch_assoc($res)) $series_list[] = $r;
 
     ob_start(); ?>
-    <form method="post" class="adm-form adm-card" style="margin-bottom:2rem">
-      <input type="hidden" name="_action" value="save_series">
-      <input type="hidden" name="series_id" value="<?= $edit ? $edit['id'] : 0 ?>">
-      <div class="adm-fields-row">
-        <div class="adm-field">
-          <label>Slug (URL)
-            <input type="text" name="slug" placeholder="gerado automaticamente"
-                   value="<?= $edit ? h($edit['slug']) : '' ?>">
-          </label>
-        </div>
-        <div class="adm-field" style="max-width:100px">
-          <label>Ordem
-            <input type="number" name="sort_order" value="<?= $edit ? $edit['sort_order'] : 0 ?>">
-          </label>
-        </div>
-      </div>
-      <?php foreach ($all_langs as $l):
-            $is_def = ((int)$l['id'] === $default_lid); ?>
-      <fieldset class="adm-fieldset">
-        <legend><?= h($l['name']) ?> (<?= h($l['code']) ?>)<?= $is_def ? ' — idioma padrão' : '' ?></legend>
-        <div class="adm-field">
-          <label>Título<?= $is_def ? ' <span style="color:var(--adm-accent)">*</span>' : '' ?>
-            <input type="text" name="trans[<?= $l['id'] ?>][title]"
-                   <?= $is_def ? 'required' : '' ?>
-                   value="<?= h($edit_trans[$l['id']]['title'] ?? '') ?>">
-          </label>
-        </div>
-        <div class="adm-field">
-          <label>Descrição
-            <textarea name="trans[<?= $l['id'] ?>][description]" rows="2"><?= h($edit_trans[$l['id']]['description'] ?? '') ?></textarea>
-          </label>
-        </div>
-      </fieldset>
-      <?php endforeach; ?>
-      <div class="adm-actions">
-        <button type="submit" class="adm-btn adm-btn-primary"><?= $edit ? 'Atualizar' : 'Criar Série' ?></button>
-        <?php if ($edit): ?>
-        <a href="admin.php?section=series" class="adm-btn">Cancelar</a>
-        <?php endif; ?>
-      </div>
-    </form>
-
+    <div class="adm-list-header">
+      <a href="admin.php?section=series&amp;new=1" class="adm-btn adm-btn-primary">+ Nova Série</a>
+    </div>
     <table class="adm-table">
       <thead><tr><th>Slug</th><th>Títulos</th><th>Ord.</th><th></th></tr></thead>
       <tbody>
@@ -1000,15 +1024,17 @@ if ($section === 'series') {
 
 /* ── Livros ─────────────────────────────────────────────────────────── */
 if ($section === 'books') {
-    $all_langs  = get_all_langs($db);
-    $all_series = [];
+    $all_langs   = get_all_langs($db);
+    $default_lid = get_default_lang_id($db);
+    $all_series  = [];
     $res = mysqli_query($db, 'SELECT s.id, COALESCE(st.title, s.slug) AS title
                                FROM series s
                                LEFT JOIN series_t st ON st.series_id = s.id
                                GROUP BY s.id ORDER BY s.sort_order, s.id');
     while ($r = mysqli_fetch_assoc($res)) $all_series[] = $r;
 
-    $edit_id   = (int)($_GET['edit'] ?? 0);
+    $edit_id = (int)($_GET['edit'] ?? 0);
+    $is_new  = isset($_GET['new']);
     $edit = $edit_trans = null;
 
     if ($edit_id > 0) {
@@ -1021,7 +1047,90 @@ if ($section === 'books') {
         }
     }
 
-    $default_lid = get_default_lang_id($db);
+    /* ── Formulário ── */
+    if ($edit_id > 0 || $is_new) {
+        $page_label = $edit
+            ? 'Editar: ' . h($edit_trans[$default_lid]['title'] ?? $edit['slug'])
+            : 'Novo Livro';
+        ob_start(); ?>
+        <form method="post" class="adm-form adm-card">
+          <input type="hidden" name="_action" value="save_book">
+          <input type="hidden" name="book_id" value="<?= $edit ? $edit['id'] : 0 ?>">
+          <div class="adm-fields-row">
+            <div class="adm-field">
+              <label>Série
+                <select name="series_id" required>
+                  <?php foreach ($all_series as $s): ?>
+                  <option value="<?= $s['id'] ?>"
+                    <?= ($edit && $edit['series_id'] == $s['id']) ? 'selected' : '' ?>>
+                    <?= h($s['title']) ?>
+                  </option>
+                  <?php endforeach; ?>
+                </select>
+              </label>
+            </div>
+            <div class="adm-field">
+              <label>Slug (URL)
+                <input type="text" name="slug" placeholder="gerado automaticamente"
+                       value="<?= $edit ? h($edit['slug']) : '' ?>">
+              </label>
+            </div>
+            <div class="adm-field" style="max-width:80px">
+              <label>Ordem
+                <input type="number" name="sort_order" value="<?= $edit ? $edit['sort_order'] : 0 ?>">
+              </label>
+            </div>
+            <div class="adm-field" style="max-width:130px;justify-content:flex-end;padding-top:1.4rem">
+              <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer">
+                <input type="checkbox" name="is_published" value="1"
+                       <?= (!$edit || $edit['is_published']) ? 'checked' : '' ?>>
+                Publicado
+              </label>
+            </div>
+          </div>
+          <div class="adm-field">
+            <label>URL da Capa (imagem, opcional)
+              <input type="url" name="cover_image" value="<?= $edit ? h($edit['cover_image'] ?? '') : '' ?>">
+            </label>
+          </div>
+          <?php foreach ($all_langs as $l):
+                $is_def = ((int)$l['id'] === $default_lid); ?>
+          <fieldset class="adm-fieldset">
+            <legend><?= h($l['name']) ?> (<?= h($l['code']) ?>)<?= $is_def ? ' — idioma padrão' : '' ?></legend>
+            <div class="adm-field">
+              <label>Título<?= $is_def ? ' <span style="color:var(--adm-accent)">*</span>' : '' ?>
+                <input type="text" name="trans[<?= $l['id'] ?>][title]"
+                       <?= $is_def ? 'required' : '' ?>
+                       value="<?= h($edit_trans[$l['id']]['title'] ?? '') ?>">
+              </label>
+            </div>
+            <div class="adm-field">
+              <label>Copyright <span style="color:var(--adm-muted);font-size:.8rem">(ex: © 2024 Autor — aparece abaixo do título)</span>
+                <input type="text" name="trans[<?= $l['id'] ?>][copyright]" maxlength="300"
+                       value="<?= h($edit_trans[$l['id']]['copyright'] ?? '') ?>">
+              </label>
+            </div>
+            <div class="adm-field">
+              <label>Descrição / sinopse
+                <textarea name="trans[<?= $l['id'] ?>][description]" rows="2"><?= h($edit_trans[$l['id']]['description'] ?? '') ?></textarea>
+              </label>
+            </div>
+          </fieldset>
+          <?php endforeach; ?>
+          <div class="adm-actions">
+            <button type="submit" class="adm-btn adm-btn-primary"><?= $edit ? 'Atualizar' : 'Criar Livro' ?></button>
+            <a href="admin.php?section=books" class="adm-btn">Cancelar</a>
+          </div>
+        </form>
+        <?php
+        admin_wrap($page_label, 'books', ob_get_clean(), $flash, [
+            ['label' => 'Livros', 'url' => 'admin.php?section=books'],
+            ['label' => $page_label],
+        ]);
+        exit;
+    }
+
+    /* ── Lista ── */
     $books_list = [];
     $res = mysqli_query($db, 'SELECT b.id, b.slug, b.sort_order, b.is_published,
                                       COALESCE(st.title, s.slug) AS series_title,
@@ -1034,78 +1143,9 @@ if ($section === 'books') {
     while ($r = mysqli_fetch_assoc($res)) $books_list[] = $r;
 
     ob_start(); ?>
-    <form method="post" class="adm-form adm-card" style="margin-bottom:2rem">
-      <input type="hidden" name="_action" value="save_book">
-      <input type="hidden" name="book_id" value="<?= $edit ? $edit['id'] : 0 ?>">
-      <div class="adm-fields-row">
-        <div class="adm-field">
-          <label>Série
-            <select name="series_id" required>
-              <?php foreach ($all_series as $s): ?>
-              <option value="<?= $s['id'] ?>"
-                <?= ($edit && $edit['series_id'] == $s['id']) ? 'selected' : '' ?>>
-                <?= h($s['title']) ?>
-              </option>
-              <?php endforeach; ?>
-            </select>
-          </label>
-        </div>
-        <div class="adm-field">
-          <label>Slug (URL)
-            <input type="text" name="slug" placeholder="gerado automaticamente"
-                   value="<?= $edit ? h($edit['slug']) : '' ?>">
-          </label>
-        </div>
-        <div class="adm-field" style="max-width:80px">
-          <label>Ordem
-            <input type="number" name="sort_order" value="<?= $edit ? $edit['sort_order'] : 0 ?>">
-          </label>
-        </div>
-        <div class="adm-field" style="max-width:130px;justify-content:flex-end;padding-top:1.4rem">
-          <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer">
-            <input type="checkbox" name="is_published" value="1"
-                   <?= (!$edit || $edit['is_published']) ? 'checked' : '' ?>>
-            Publicado
-          </label>
-        </div>
-      </div>
-      <div class="adm-field">
-        <label>URL da Capa (imagem, opcional)
-          <input type="url" name="cover_image" value="<?= $edit ? h($edit['cover_image'] ?? '') : '' ?>">
-        </label>
-      </div>
-      <?php foreach ($all_langs as $l):
-            $is_def = ((int)$l['id'] === $default_lid); ?>
-      <fieldset class="adm-fieldset">
-        <legend><?= h($l['name']) ?> (<?= h($l['code']) ?>)<?= $is_def ? ' — idioma padrão' : '' ?></legend>
-        <div class="adm-field">
-          <label>Título<?= $is_def ? ' <span style="color:var(--adm-accent)">*</span>' : '' ?>
-            <input type="text" name="trans[<?= $l['id'] ?>][title]"
-                   <?= $is_def ? 'required' : '' ?>
-                   value="<?= h($edit_trans[$l['id']]['title'] ?? '') ?>">
-          </label>
-        </div>
-        <div class="adm-field">
-          <label>Copyright <span style="color:var(--adm-muted);font-size:.8rem">(ex: © 2024 Autor — aparece abaixo do título)</span>
-            <input type="text" name="trans[<?= $l['id'] ?>][copyright]" maxlength="300"
-                   value="<?= h($edit_trans[$l['id']]['copyright'] ?? '') ?>">
-          </label>
-        </div>
-        <div class="adm-field">
-          <label>Descrição / sinopse
-            <textarea name="trans[<?= $l['id'] ?>][description]" rows="2"><?= h($edit_trans[$l['id']]['description'] ?? '') ?></textarea>
-          </label>
-        </div>
-      </fieldset>
-      <?php endforeach; ?>
-      <div class="adm-actions">
-        <button type="submit" class="adm-btn adm-btn-primary"><?= $edit ? 'Atualizar' : 'Criar Livro' ?></button>
-        <?php if ($edit): ?>
-        <a href="admin.php?section=books" class="adm-btn">Cancelar</a>
-        <?php endif; ?>
-      </div>
-    </form>
-
+    <div class="adm-list-header">
+      <a href="admin.php?section=books&amp;new=1" class="adm-btn adm-btn-primary">+ Novo Livro</a>
+    </div>
     <table class="adm-table">
       <thead><tr><th>Série</th><th>Slug</th><th>Títulos</th><th>Ord.</th><th>Status</th><th></th></tr></thead>
       <tbody>
@@ -1142,10 +1182,13 @@ if ($section === 'books') {
 
 /* ── Capítulos ──────────────────────────────────────────────────────── */
 if ($section === 'chapters') {
-    $all_langs = get_all_langs($db);
-    $filter_bid = (int)($_GET['book_id'] ?? 0);
+    $all_langs   = get_all_langs($db);
+    $default_lid = get_default_lang_id($db);
+    $filter_bid  = (int)($_GET['book_id'] ?? 0);
+    $edit_id     = (int)($_GET['edit'] ?? 0);
+    $is_new      = isset($_GET['new']);
 
-    // Lista de livros para o filtro/select
+    // Todos os livros para seletor
     $all_books = [];
     $res = mysqli_query($db, 'SELECT b.id, COALESCE(bt.title, b.slug) AS title,
                                       COALESCE(st.title, s.slug) AS series_title
@@ -1156,9 +1199,15 @@ if ($section === 'chapters') {
                                GROUP BY b.id ORDER BY s.sort_order, b.sort_order, b.id');
     while ($r = mysqli_fetch_assoc($res)) $all_books[] = $r;
 
-    $edit_id   = (int)($_GET['edit'] ?? 0);
-    $edit = $edit_trans = null;
+    // Livro selecionado (para breadcrumb e título)
+    $cur_book = null;
+    if ($filter_bid > 0) {
+        foreach ($all_books as $ab) {
+            if ((int)$ab['id'] === $filter_bid) { $cur_book = $ab; break; }
+        }
+    }
 
+    $edit = $edit_trans = null;
     if ($edit_id > 0) {
         $edit = mysqli_fetch_assoc(mysqli_query($db,
             "SELECT * FROM chapters WHERE id = $edit_id"));
@@ -1170,7 +1219,7 @@ if ($section === 'chapters') {
         }
     }
 
-    $default_lid = get_default_lang_id($db);
+    // Lista de capítulos
     $chapters_list = [];
     if ($filter_bid > 0) {
         $res = mysqli_query($db,
@@ -1183,8 +1232,79 @@ if ($section === 'chapters') {
         while ($r = mysqli_fetch_assoc($res)) $chapters_list[] = $r;
     }
 
+    /* ── Formulário ── */
+    if ($filter_bid > 0 && ($edit_id > 0 || $is_new)) {
+        $book_label = $cur_book
+            ? h($cur_book['series_title']) . ' / ' . h($cur_book['title'])
+            : 'Livro #' . $filter_bid;
+        $page_label = $edit
+            ? 'Editar: ' . h($edit_trans[$default_lid]['title'] ?? $edit['slug'])
+            : 'Novo Capítulo';
+        ob_start(); ?>
+        <form method="post" class="adm-form adm-card">
+          <input type="hidden" name="_action" value="save_chapter">
+          <input type="hidden" name="chapter_id" value="<?= $edit ? $edit['id'] : 0 ?>">
+          <input type="hidden" name="book_id" value="<?= $filter_bid ?>">
+          <div class="adm-fields-row">
+            <div class="adm-field">
+              <label>Slug (URL)
+                <input type="text" name="slug" placeholder="gerado automaticamente"
+                       value="<?= $edit ? h($edit['slug']) : '' ?>">
+              </label>
+            </div>
+            <div class="adm-field" style="max-width:80px">
+              <label>Ordem
+                <input type="number" name="sort_order"
+                       value="<?= $edit ? $edit['sort_order'] : count($chapters_list) ?>">
+              </label>
+            </div>
+          </div>
+          <?php foreach ($all_langs as $l):
+                $is_def = ((int)$l['id'] === $default_lid); ?>
+          <fieldset class="adm-fieldset">
+            <legend><?= h($l['name']) ?> (<?= h($l['code']) ?>)<?= $is_def ? ' — idioma padrão' : '' ?></legend>
+            <div class="adm-field">
+              <label>Título<?= $is_def ? ' <span style="color:var(--adm-accent)">*</span>' : '' ?>
+                <input type="text" name="trans[<?= $l['id'] ?>][title]"
+                       <?= $is_def ? 'required' : '' ?>
+                       value="<?= h($edit_trans[$l['id']]['title'] ?? '') ?>">
+              </label>
+            </div>
+            <div class="adm-field">
+              <label>Conteúdo<?= $is_def ? ' <span style="color:var(--adm-accent)">*</span>' : '' ?>
+                <div class="adm-editor-toolbar">
+                  <button type="button" class="adm-btn adm-btn-sm italic-btn"
+                          data-target="content_<?= $l['id'] ?>"><em>I</em> Itálico</button>
+                </div>
+                <textarea id="content_<?= $l['id'] ?>"
+                          name="trans[<?= $l['id'] ?>][content]"
+                          rows="18"
+                          class="adm-content-area"><?= h($edit_trans[$l['id']]['content'] ?? '') ?></textarea>
+              </label>
+              <p class="adm-hint">Selecione texto e clique em Itálico para marcar. Linha em branco = novo parágrafo.</p>
+            </div>
+          </fieldset>
+          <?php endforeach; ?>
+          <div class="adm-actions">
+            <button type="submit" class="adm-btn adm-btn-primary"><?= $edit ? 'Atualizar' : 'Criar Capítulo' ?></button>
+            <a href="admin.php?section=chapters&amp;book_id=<?= $filter_bid ?>" class="adm-btn">Cancelar</a>
+          </div>
+        </form>
+        <?php
+        admin_wrap($page_label, 'chapters', ob_get_clean(), $flash, [
+            ['label' => 'Capítulos', 'url' => 'admin.php?section=chapters'],
+            ['label' => $book_label, 'url' => 'admin.php?section=chapters&book_id=' . $filter_bid],
+            ['label' => $page_label],
+        ]);
+        exit;
+    }
+
+    /* ── Lista ── */
+    $book_label = $cur_book
+        ? h($cur_book['series_title']) . ' / ' . h($cur_book['title'])
+        : null;
     ob_start(); ?>
-    <!-- Filtro de livro -->
+    <!-- Seletor de livro -->
     <form method="get" class="adm-inline-form" style="margin-bottom:1.5rem">
       <input type="hidden" name="section" value="chapters">
       <label style="font-size:.9rem">Livro:
@@ -1200,58 +1320,10 @@ if ($section === 'chapters') {
     </form>
 
     <?php if ($filter_bid > 0): ?>
-    <form method="post" class="adm-form adm-card" style="margin-bottom:2rem">
-      <input type="hidden" name="_action" value="save_chapter">
-      <input type="hidden" name="chapter_id" value="<?= $edit ? $edit['id'] : 0 ?>">
-      <input type="hidden" name="book_id" value="<?= $filter_bid ?>">
-      <div class="adm-fields-row">
-        <div class="adm-field">
-          <label>Slug (URL)
-            <input type="text" name="slug" placeholder="gerado automaticamente"
-                   value="<?= $edit ? h($edit['slug']) : '' ?>">
-          </label>
-        </div>
-        <div class="adm-field" style="max-width:80px">
-          <label>Ordem
-            <input type="number" name="sort_order"
-                   value="<?= $edit ? $edit['sort_order'] : count($chapters_list) ?>">
-          </label>
-        </div>
-      </div>
-      <?php foreach ($all_langs as $l):
-            $is_def = ((int)$l['id'] === $default_lid); ?>
-      <fieldset class="adm-fieldset">
-        <legend><?= h($l['name']) ?> (<?= h($l['code']) ?>)<?= $is_def ? ' — idioma padrão' : '' ?></legend>
-        <div class="adm-field">
-          <label>Título<?= $is_def ? ' <span style="color:var(--adm-accent)">*</span>' : '' ?>
-            <input type="text" name="trans[<?= $l['id'] ?>][title]"
-                   <?= $is_def ? 'required' : '' ?>
-                   value="<?= h($edit_trans[$l['id']]['title'] ?? '') ?>">
-          </label>
-        </div>
-        <div class="adm-field">
-          <label>Conteúdo<?= $is_def ? ' <span style="color:var(--adm-accent)">*</span>' : '' ?>
-            <div class="adm-editor-toolbar">
-              <button type="button" class="adm-btn adm-btn-sm italic-btn"
-                      data-target="content_<?= $l['id'] ?>"><em>I</em> Itálico</button>
-            </div>
-            <textarea id="content_<?= $l['id'] ?>"
-                      name="trans[<?= $l['id'] ?>][content]"
-                      rows="12"
-                      class="adm-content-area"><?= h($edit_trans[$l['id']]['content'] ?? '') ?></textarea>
-          </label>
-          <p class="adm-hint">Selecione texto e clique em Itálico para marcar. Linha em branco = novo parágrafo.</p>
-        </div>
-      </fieldset>
-      <?php endforeach; ?>
-      <div class="adm-actions">
-        <button type="submit" class="adm-btn adm-btn-primary"><?= $edit ? 'Atualizar' : 'Criar Capítulo' ?></button>
-        <?php if ($edit): ?>
-        <a href="admin.php?section=chapters&amp;book_id=<?= $filter_bid ?>" class="adm-btn">Cancelar</a>
-        <?php endif; ?>
-      </div>
-    </form>
-
+    <div class="adm-list-header">
+      <a href="admin.php?section=chapters&amp;book_id=<?= $filter_bid ?>&amp;new=1"
+         class="adm-btn adm-btn-primary">+ Novo Capítulo</a>
+    </div>
     <table class="adm-table">
       <thead><tr><th>#</th><th>Slug</th><th>Títulos</th><th>Ord.</th><th></th></tr></thead>
       <tbody>
@@ -1286,7 +1358,10 @@ if ($section === 'chapters') {
     <p class="adm-muted">Selecione um livro para gerenciar seus capítulos.</p>
     <?php endif; ?>
     <?php
-    admin_wrap('Capítulos', 'chapters', ob_get_clean(), $flash);
+    $crumbs = $book_label
+        ? [['label' => 'Capítulos', 'url' => 'admin.php?section=chapters'], ['label' => $book_label]]
+        : [];
+    admin_wrap('Capítulos', 'chapters', ob_get_clean(), $flash, $crumbs);
     exit;
 }
 

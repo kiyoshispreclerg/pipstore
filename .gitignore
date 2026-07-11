@@ -1,2 +1,3 @@
 .directory
 .vscode/settings.json
+migrations/001_private_books.sql

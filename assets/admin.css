@@ -98,8 +98,27 @@ code { font-size: .82em; background: var(--adm-bg); padding: .1em .3em; border-r
   font-size: 1.4rem;
   font-weight: 700;
   margin-bottom: 1.25rem;
+  margin-top: 0;
   color: var(--adm-text);
 }
+
+/* ── Breadcrumb ──────────────────────────────────────────────────────── */
+.adm-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .25rem;
+  font-size: .8rem;
+  color: var(--adm-muted);
+  margin-bottom: .5rem;
+}
+.adm-breadcrumb a {
+  color: var(--adm-muted);
+  text-decoration: none;
+}
+.adm-breadcrumb a:hover { color: var(--adm-accent); text-decoration: underline; }
+.adm-breadcrumb .adm-bc-sep { opacity: .45; }
+.adm-title { margin-bottom: 1rem; }
 
 /* ── Flash messages ──────────────────────────────────────────────────── */
 .adm-flash {
@@ -182,6 +201,7 @@ code { font-size: .82em; background: var(--adm-bg); padding: .1em .3em; border-r
 }
 
 .adm-inline-form { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.adm-list-header { display: flex; justify-content: flex-end; margin-bottom: 1rem; }
 
 /* ── Botões ──────────────────────────────────────────────────────────── */
 .adm-btn {
