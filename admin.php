@@ -756,6 +756,7 @@ function admin_wrap(string $title, string $section, string $body, ?array $flash,
       if ($pc && $pc[0] > 0) echo ' <span style="background:var(--adm-accent);color:#fff;border-radius:999px;padding:1px 6px;font-size:.72rem">' . (int)$pc[0] . '</span>';
     ?></a>
     <a href="admin.php?section=design"    class="<?= $section==='design'    ?'active':'' ?>">Design</a>
+    <a href="admin.php?section=import"    class="<?= $section==='import'    ?'active':'' ?>">Importar ODT</a>
     <hr>
     <a href="admin.php?section=password">Senha</a>
     <a href="admin.php?_action=logout">Sair</a>
@@ -1790,6 +1791,334 @@ if ($section === 'comments') {
     <?php endif; ?>
     <?php
     admin_wrap('Comentários', 'comments', ob_get_clean(), $flash);
+    exit;
+}
+
+/* ── Importar ODT ───────────────────────────────────────────────────── */
+if ($section === 'import') {
+    require_once __DIR__ . '/assets/odt_parser.php';
+
+    // Cancel: discard upload session and restart
+    if (isset($_GET['_cancel'])) {
+        $tmp = $_SESSION['odt_tmp'] ?? '';
+        if ($tmp) @unlink($tmp);
+        unset($_SESSION['odt_tmp'], $_SESSION['odt_bid'], $_SESSION['odt_lid']);
+        redirect('admin.php?section=import');
+    }
+
+    $all_langs   = get_all_langs($db);
+    $default_lid = get_default_lang_id($db);
+
+    $res_books = mysqli_query($db,
+        'SELECT b.id, bt.title, s.slug AS series_slug
+         FROM books b
+         JOIN books_t bt ON bt.book_id=b.id AND bt.lang_id=' . $default_lid . '
+         JOIN series s ON s.id=b.series_id
+         ORDER BY s.sort_order, b.sort_order');
+    $all_books = [];
+    while ($r = mysqli_fetch_assoc($res_books)) $all_books[] = $r;
+
+    $wizard_step = 1;
+    $hlevels     = [];
+    $chapters    = [];
+    $parse_error = null;
+    $preview_bid = 0;
+    $preview_lid = $default_lid;
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $wizard_step = (int)($_POST['_wizard_step'] ?? 1);
+
+        if ($wizard_step === 1) {
+            /* ── Step 1: handle file upload ───────────────────────── */
+            $preview_bid = (int)($_POST['book_id'] ?? 0);
+            $preview_lid = (int)($_POST['lang_id'] ?? $default_lid);
+
+            if ($preview_bid === 0) {
+                $parse_error = 'Selecione um livro de destino.';
+            } elseif (!isset($_FILES['odt_file']) || $_FILES['odt_file']['error'] !== UPLOAD_ERR_OK) {
+                $file_err = $_FILES['odt_file']['error'] ?? -1;
+                $parse_error = $file_err === UPLOAD_ERR_INI_SIZE || $file_err === UPLOAD_ERR_FORM_SIZE
+                    ? 'Arquivo muito grande (verifique upload_max_filesize no php.ini).'
+                    : 'Selecione um arquivo ODT válido.';
+            } else {
+                $tmp = sys_get_temp_dir() . '/odt_import_' . session_id() . '.odt';
+                if (!move_uploaded_file($_FILES['odt_file']['tmp_name'], $tmp)) {
+                    $parse_error = 'Falha ao salvar arquivo temporário.';
+                } else {
+                    try {
+                        $elements = odt_parse($tmp);
+                        $hlevels  = odt_heading_levels($elements);
+                        $_SESSION['odt_tmp'] = $tmp;
+                        $_SESSION['odt_bid'] = $preview_bid;
+                        $_SESSION['odt_lid'] = $preview_lid;
+                        $wizard_step = 2;
+                    } catch (Exception $e) {
+                        @unlink($tmp);
+                        $parse_error = 'Erro ao ler ODT: ' . $e->getMessage();
+                        $wizard_step = 1;
+                    }
+                }
+            }
+        }
+
+        if ($wizard_step === 2 && isset($_POST['_do_import'])) {
+            /* ── Step 2: create chapters ──────────────────────────── */
+            $tmp = $_SESSION['odt_tmp'] ?? '';
+            $bid = (int)($_SESSION['odt_bid'] ?? 0);
+            $lid = (int)($_SESSION['odt_lid'] ?? $default_lid);
+            $chapter_level = (int)($_POST['chapter_level'] ?? 1);
+            $all_levels    = !empty($_POST['all_levels']);
+            $sub_sep       = $_POST['sub_separator'] ?? '***';
+
+            if (!$tmp || !file_exists($tmp)) {
+                $parse_error = 'Sessão expirada — faça upload novamente.';
+                $wizard_step = 1;
+            } else {
+                try {
+                    $elements  = odt_parse($tmp);
+                    $chapters  = odt_split_chapters($elements, $chapter_level, $sub_sep, $all_levels);
+
+                    $max_sort_row = mysqli_fetch_row(mysqli_query($db,
+                        "SELECT COALESCE(MAX(sort_order),0) FROM chapters WHERE book_id=$bid"));
+                    $max_sort = (int)$max_sort_row[0];
+                    $created  = 0;
+
+                    foreach ($chapters as $i => $ch) {
+                        $title   = trim($ch['title']);
+                        $content = trim($ch['content']);
+                        if ($title === '' && $content === '') continue;
+
+                        $base_slug = generate_slug($title ?: ('capitulo-' . ($i + 1)));
+                        $slug = $base_slug;
+                        $n = 1;
+                        while (mysqli_fetch_row(mysqli_query($db,
+                            "SELECT id FROM chapters WHERE book_id=$bid AND slug='" .
+                            mysqli_real_escape_string($db, $slug) . "' LIMIT 1"))) {
+                            $slug = $base_slug . '-' . (++$n);
+                        }
+
+                        $sort = ++$max_sort;
+                        $s1 = mysqli_prepare($db, 'INSERT INTO chapters (book_id,slug,sort_order) VALUES (?,?,?)');
+                        mysqli_stmt_bind_param($s1, 'isi', $bid, $slug, $sort);
+                        mysqli_execute($s1);
+                        $cid = (int)mysqli_insert_id($db);
+                        mysqli_stmt_close($s1);
+
+                        $s2 = mysqli_prepare($db,
+                            'INSERT INTO chapters_t (chapter_id,lang_id,title,content) VALUES (?,?,?,?)');
+                        mysqli_stmt_bind_param($s2, 'iiss', $cid, $lid, $title, $content);
+                        mysqli_execute($s2);
+                        mysqli_stmt_close($s2);
+                        $created++;
+                    }
+
+                    @unlink($tmp);
+                    unset($_SESSION['odt_tmp'], $_SESSION['odt_bid'], $_SESSION['odt_lid']);
+                    flash("$created capítulo(s) importado(s) com sucesso.");
+                    redirect('admin.php?section=chapters&book_id=' . $bid);
+                } catch (Exception $e) {
+                    $parse_error = 'Erro na importação: ' . $e->getMessage();
+                    $wizard_step = 1;
+                }
+            }
+        }
+
+        if ($wizard_step === 2 && !isset($_POST['_do_import'])) {
+            /* ── Step 2: load chapter preview ─────────────────────── */
+            $tmp = $_SESSION['odt_tmp'] ?? '';
+            if ($tmp && file_exists($tmp)) {
+                $preview_bid = (int)($_SESSION['odt_bid'] ?? 0);
+                $preview_lid = (int)($_SESSION['odt_lid'] ?? $default_lid);
+                try {
+                    $elements = odt_parse($tmp);
+                    $hlevels  = odt_heading_levels($elements);
+                    $chapter_level = (int)($_POST['chapter_level'] ?? ($hlevels[0] ?? 1));
+                    $all_levels    = !empty($_POST['all_levels']);
+                    $sub_sep       = $_POST['sub_separator'] ?? '***';
+                    $chapters = odt_split_chapters($elements, $chapter_level, $sub_sep, $all_levels);
+                } catch (Exception $e) {
+                    $parse_error = $e->getMessage();
+                    $wizard_step = 1;
+                }
+            } else {
+                $wizard_step = 1;
+            }
+        }
+    }
+
+    // If we have a valid session but landed on GET, restore step 2
+    if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_SESSION['odt_tmp']) && file_exists($_SESSION['odt_tmp'])) {
+        $tmp = $_SESSION['odt_tmp'];
+        $preview_bid = (int)($_SESSION['odt_bid'] ?? 0);
+        $preview_lid = (int)($_SESSION['odt_lid'] ?? $default_lid);
+        try {
+            $elements = odt_parse($tmp);
+            $hlevels  = odt_heading_levels($elements);
+            $chapters = odt_split_chapters($elements, $hlevels[0] ?? 1, '***', false);
+            $wizard_step = 2;
+        } catch (Exception $e) {
+            $wizard_step = 1;
+        }
+    }
+
+    ob_start();
+    if ($parse_error): ?>
+    <div class="adm-alert adm-alert-err" style="margin-bottom:1rem"><?= h($parse_error) ?></div>
+    <?php endif;
+
+    if ($wizard_step === 2 && !$parse_error):
+        $chapter_level = (int)($_POST['chapter_level'] ?? ($hlevels[0] ?? 1));
+        $all_levels    = !empty($_POST['all_levels']);
+        $sub_sep       = $_POST['sub_separator'] ?? '***';
+        ?>
+    <div class="adm-card" style="margin-bottom:1rem">
+      <p style="font-size:.85rem;color:var(--adm-muted);margin-bottom:.5rem">
+        Livro: <strong><?php
+          foreach ($all_books as $bk) { if ((int)$bk['id'] === $preview_bid) { echo h($bk['title']); break; } }
+        ?></strong> &nbsp;|&nbsp;
+        Idioma: <strong><?php
+          foreach ($all_langs as $l) { if ((int)$l['id'] === $preview_lid) { echo h($l['name']); break; } }
+        ?></strong>
+      </p>
+      <p style="font-size:.85rem;color:var(--adm-muted)">
+        <?php if ($hlevels): ?>
+        Níveis de título detectados: <strong><?= implode(', ', array_map(fn($l) => "H$l", $hlevels)) ?></strong>.
+        <?php else: ?>
+        Nenhum título detectado — todo o conteúdo formará um único capítulo.
+        <?php endif; ?>
+      </p>
+    </div>
+
+    <form method="post" class="adm-form" enctype="multipart/form-data">
+      <input type="hidden" name="_action"      value="import_noop">
+      <input type="hidden" name="_wizard_step" value="2">
+
+      <?php if (count($hlevels) > 1): ?>
+      <div class="adm-card" style="margin-bottom:1rem">
+        <h2 style="font-size:1rem;font-weight:700;margin-bottom:.75rem">Mapeamento de títulos</h2>
+
+        <div class="adm-field" style="margin-bottom:.75rem">
+          <label style="display:flex;align-items:center;gap:.5rem;font-weight:400">
+            <input type="checkbox" name="all_levels" value="1"
+                   <?= $all_levels ? 'checked' : '' ?>
+                   onchange="this.form.submit()">
+            Converter <strong>todos</strong> os níveis de título em capítulos separados
+          </label>
+        </div>
+
+        <?php if (!$all_levels): ?>
+        <div class="adm-fields-row">
+          <div class="adm-field" style="max-width:180px">
+            <label>Nível de título → capítulo
+              <select name="chapter_level" onchange="this.form.submit()">
+                <?php foreach ($hlevels as $lv): ?>
+                <option value="<?= $lv ?>" <?= $lv === $chapter_level ? 'selected' : '' ?>>H<?= $lv ?></option>
+                <?php endforeach; ?>
+              </select>
+            </label>
+          </div>
+          <?php if (count($hlevels) > 1): ?>
+          <div class="adm-field">
+            <label>Separador para outros títulos
+              <input type="text" name="sub_separator" value="<?= h($sub_sep) ?>"
+                     placeholder="ex: *** ou deixe vazio">
+            </label>
+            <p class="adm-hint">Inserido no lugar dos títulos de outros níveis dentro do capítulo.</p>
+          </div>
+          <?php endif; ?>
+        </div>
+        <?php endif; ?>
+      </div>
+      <?php else: ?>
+      <input type="hidden" name="all_levels"     value="">
+      <input type="hidden" name="chapter_level"  value="<?= $hlevels[0] ?? 1 ?>">
+      <input type="hidden" name="sub_separator"  value="***">
+      <?php endif; ?>
+
+      <div class="adm-card" style="margin-bottom:1rem">
+        <h2 style="font-size:1rem;font-weight:700;margin-bottom:.75rem">
+          Prévia — <?= count($chapters) ?> capítulo(s)
+        </h2>
+        <?php $preview_count = min(3, count($chapters)); ?>
+        <?php for ($pi = 0; $pi < $preview_count; $pi++):
+              $pch = $chapters[$pi]; ?>
+        <div style="border:1px solid var(--adm-border);border-radius:6px;padding:.75rem;margin-bottom:.6rem">
+          <div style="font-weight:600;margin-bottom:.3rem"><?= $pch['title'] !== '' ? h($pch['title']) : '<em style="color:var(--adm-muted)">(sem título)</em>' ?></div>
+          <?php $preview_lines = array_slice(explode("\n", trim($pch['content'])), 0, 3); ?>
+          <?php foreach ($preview_lines as $pl): ?>
+          <div style="font-size:.82rem;color:var(--adm-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?= h($pl) ?></div>
+          <?php endforeach; ?>
+          <?php if (count(explode("\n", trim($pch['content']))) > 3): ?>
+          <div style="font-size:.75rem;color:var(--adm-muted);margin-top:.2rem">…</div>
+          <?php endif; ?>
+        </div>
+        <?php endfor; ?>
+        <?php if (count($chapters) > 3): ?>
+        <p style="font-size:.8rem;color:var(--adm-muted)">e mais <?= count($chapters) - 3 ?> capítulo(s)…</p>
+        <?php endif; ?>
+      </div>
+
+      <div class="adm-actions" style="gap:.75rem">
+        <button type="submit" name="_do_import" value="1"
+                class="adm-btn adm-btn-primary"
+                onclick="return confirm('Criar <?= count($chapters) ?> capítulo(s) no livro selecionado?')">
+          Importar <?= count($chapters) ?> capítulo(s)
+        </button>
+        <a href="admin.php?section=import&_cancel=1" class="adm-btn"
+           onclick="return confirm('Cancelar importação e descartar arquivo?')">Cancelar</a>
+      </div>
+    </form>
+
+    <?php else: /* wizard_step === 1 or error */ ?>
+
+    <form method="post" class="adm-form" enctype="multipart/form-data">
+      <input type="hidden" name="_action"      value="import_noop">
+      <input type="hidden" name="_wizard_step" value="1">
+
+      <div class="adm-card">
+        <h2 style="font-size:1rem;font-weight:700;margin-bottom:1rem">Arquivo ODT</h2>
+        <div class="adm-fields-row">
+          <div class="adm-field">
+            <label>Livro de destino
+              <select name="book_id" required>
+                <option value="">— selecione —</option>
+                <?php foreach ($all_books as $bk): ?>
+                <option value="<?= (int)$bk['id'] ?>"><?= h($bk['title']) ?></option>
+                <?php endforeach; ?>
+              </select>
+            </label>
+          </div>
+          <?php if (count($all_langs) > 1): ?>
+          <div class="adm-field" style="max-width:160px">
+            <label>Idioma
+              <select name="lang_id">
+                <?php foreach ($all_langs as $l): ?>
+                <option value="<?= (int)$l['id'] ?>" <?= (int)$l['id'] === $default_lid ? 'selected' : '' ?>>
+                  <?= h($l['name']) ?>
+                </option>
+                <?php endforeach; ?>
+              </select>
+            </label>
+          </div>
+          <?php else: ?>
+          <input type="hidden" name="lang_id" value="<?= $default_lid ?>">
+          <?php endif; ?>
+        </div>
+        <div class="adm-field">
+          <label>Arquivo .odt
+            <input type="file" name="odt_file" accept=".odt" required>
+          </label>
+          <p class="adm-hint">Apenas arquivos ODT (OpenDocument Text / LibreOffice Writer).</p>
+        </div>
+        <div class="adm-actions">
+          <button type="submit" class="adm-btn adm-btn-primary">Analisar arquivo</button>
+        </div>
+      </div>
+    </form>
+
+    <?php endif; ?>
+    <?php
+    admin_wrap('Importar ODT', 'import', ob_get_clean(), $flash);
     exit;
 }
 
