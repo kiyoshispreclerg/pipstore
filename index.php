@@ -137,7 +137,7 @@ function view_home(mysqli $db, array $lang): array {
     </div>
     <hr class="divider">
     <?php if ($books): ?>
-    <div class="home-recent-title">Histórias recentes</div>
+    <div class="home-recent-title"><?= h(site_setting('ui_home_recent', 'Histórias recentes')) ?></div>
     <div class="book-grid">
       <?php foreach ($books as $b): ?>
       <div class="book-card-wrap">
@@ -189,7 +189,7 @@ function view_series(mysqli $db, array $lang): array {
     unset($s);
 
     ob_start(); ?>
-    <h1 class="page-title">Séries &amp; Histórias</h1>
+    <h1 class="page-title"><?= h(site_setting('ui_series_title', 'Séries & Histórias')) ?></h1>
     <hr class="divider">
     <?php if (!$series_list): ?>
     <p class="empty-msg">Nenhuma série publicada ainda.</p>
@@ -305,7 +305,7 @@ function view_book(mysqli $db, string $slug, array $lang): array {
         <?php if ($info['description']): ?>
         <p class="page-subtitle"><?= h($info['description']) ?></p>
         <?php endif; ?>
-        <a href="?action=series" class="btn" style="margin-top:.75rem;font-size:.8rem">← Séries</a>
+        <a href="?action=series" class="btn" style="margin-top:.75rem;font-size:.8rem"><?= h(site_setting('ui_back_series', '← Séries')) ?></a>
       </div>
     </div>
     <hr class="divider">
@@ -482,7 +482,7 @@ function view_bio(mysqli $db): array {
     while ($r = mysqli_fetch_assoc($res)) $links[] = $r;
 
     ob_start(); ?>
-    <h1 class="page-title">Bio &amp; Links</h1>
+    <h1 class="page-title"><?= h(site_setting('ui_bio_title', 'Bio & Links')) ?></h1>
     <hr class="divider">
     <?php if ($links): ?>
     <div class="bio-links">
@@ -629,11 +629,13 @@ $accent_rgb = hex_to_rgb($accent);
     <a href="." class="site-title"><?= h($site_name) ?></a>
     <?php endif; ?>
     <nav class="header-nav">
-      <a href="?action=series" <?= $page['action'] === 'series' ? 'class="active"' : '' ?>>Histórias</a>
-      <a href="?action=bio"    <?= $page['action'] === 'bio'    ? 'class="active"' : '' ?>>Bio</a>
+      <a href="?action=series" <?= $page['action'] === 'series' ? 'class="active"' : '' ?>><?= h(site_setting('ui_nav_stories', 'Histórias')) ?></a>
+      <a href="?action=bio"    <?= $page['action'] === 'bio'    ? 'class="active"' : '' ?>><?= h(site_setting('ui_nav_bio', 'Bio')) ?></a>
     </nav>
     <div class="header-controls">
-      <button id="ctrl-theme" class="ctrl-btn" title="Alternar tema">☽ Escuro</button>
+      <button id="ctrl-theme" class="ctrl-btn" title="Alternar tema"
+              data-go-dark="<?= h(site_setting('ui_btn_go_dark', '☽ Escuro')) ?>"
+              data-go-light="<?= h(site_setting('ui_btn_go_light', '☀ Claro')) ?>">☽ Escuro</button>
       <button id="ctrl-font"  class="ctrl-btn" title="Alternar fonte">Aa Sans</button>
       <button id="ctrl-size"  class="ctrl-btn" title="Tamanho da fonte">A+</button>
     </div>
@@ -650,11 +652,11 @@ $accent_rgb = hex_to_rgb($accent);
     <div class="footer-auth">
       <?php if ($reader): ?>
       <span class="footer-username"><?= h($reader['username']) ?></span>
-      <a href="auth.php?a=profile" class="footer-auth-link">Perfil</a>
-      <a href="auth.php?a=logout" class="footer-auth-link">Sair</a>
+      <a href="auth.php?a=profile" class="footer-auth-link"><?= h(site_setting('ui_footer_profile', 'Perfil')) ?></a>
+      <a href="auth.php?a=logout" class="footer-auth-link"><?= h(site_setting('ui_footer_logout', 'Sair')) ?></a>
       <?php else: ?>
-      <a href="auth.php?a=login"    class="footer-auth-link">Entrar</a>
-      <a href="auth.php?a=register" class="footer-auth-link">Cadastrar</a>
+      <a href="auth.php?a=login"    class="footer-auth-link"><?= h(site_setting('ui_footer_login', 'Entrar')) ?></a>
+      <a href="auth.php?a=register" class="footer-auth-link"><?= h(site_setting('ui_footer_register', 'Cadastrar')) ?></a>
       <?php endif; ?>
     </div>
     <?php if (count($all_langs) > 1): ?>

@@ -629,6 +629,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
             mysqli_execute($st); mysqli_stmt_close($st);
         }
 
+        // Textos da interface
+        $ui_fields = ['ui_nav_stories','ui_nav_bio','ui_btn_go_dark','ui_btn_go_light',
+                      'ui_footer_login','ui_footer_register','ui_footer_profile','ui_footer_logout',
+                      'ui_home_recent','ui_series_title','ui_bio_title','ui_back_series'];
+        foreach ($ui_fields as $uf) {
+            $uv = trim($_POST[$uf] ?? '');
+            $st = mysqli_prepare($db,
+                'INSERT INTO site_settings (`key`,`value`) VALUES (?,?)
+                 ON DUPLICATE KEY UPDATE `value`=VALUES(`value`)');
+            mysqli_stmt_bind_param($st, 'ss', $uf, $uv);
+            mysqli_execute($st); mysqli_stmt_close($st);
+        }
+
         // Conteúdo da home por idioma
         $home_trans = $_POST['home'] ?? [];
         foreach ($home_trans as $lid_s => $t) {
@@ -1593,6 +1606,83 @@ if ($section === 'design') {
           <div class="adm-field">
             <label>Nome remetente
               <input type="text" name="smtp_from_name" value="<?= h($cfg['smtp_from_name'] ?? '') ?>">
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="adm-card" style="margin-bottom:1.5rem">
+        <h2 style="font-size:1rem;font-weight:700;margin-bottom:1rem">Textos da Interface</h2>
+        <p style="font-size:.82rem;color:var(--adm-muted);margin-bottom:1rem">
+          Personalize rótulos e botões do site público. Emojis são permitidos.
+        </p>
+        <div class="adm-fields-row">
+          <div class="adm-field">
+            <label>Menu: link Histórias
+              <input type="text" name="ui_nav_stories" value="<?= h($cfg['ui_nav_stories'] ?? 'Histórias') ?>">
+            </label>
+          </div>
+          <div class="adm-field">
+            <label>Menu: link Bio
+              <input type="text" name="ui_nav_bio" value="<?= h($cfg['ui_nav_bio'] ?? 'Bio') ?>">
+            </label>
+          </div>
+        </div>
+        <div class="adm-fields-row">
+          <div class="adm-field">
+            <label>Botão tema — modo claro <small style="color:var(--adm-muted)">(clique vai para escuro)</small>
+              <input type="text" name="ui_btn_go_dark" value="<?= h($cfg['ui_btn_go_dark'] ?? '☽ Escuro') ?>">
+            </label>
+          </div>
+          <div class="adm-field">
+            <label>Botão tema — modo escuro <small style="color:var(--adm-muted)">(clique vai para claro)</small>
+              <input type="text" name="ui_btn_go_light" value="<?= h($cfg['ui_btn_go_light'] ?? '☀ Claro') ?>">
+            </label>
+          </div>
+        </div>
+        <div class="adm-fields-row">
+          <div class="adm-field">
+            <label>Footer: Entrar
+              <input type="text" name="ui_footer_login" value="<?= h($cfg['ui_footer_login'] ?? 'Entrar') ?>">
+            </label>
+          </div>
+          <div class="adm-field">
+            <label>Footer: Cadastrar
+              <input type="text" name="ui_footer_register" value="<?= h($cfg['ui_footer_register'] ?? 'Cadastrar') ?>">
+            </label>
+          </div>
+          <div class="adm-field">
+            <label>Footer: Perfil
+              <input type="text" name="ui_footer_profile" value="<?= h($cfg['ui_footer_profile'] ?? 'Perfil') ?>">
+            </label>
+          </div>
+          <div class="adm-field">
+            <label>Footer: Sair
+              <input type="text" name="ui_footer_logout" value="<?= h($cfg['ui_footer_logout'] ?? 'Sair') ?>">
+            </label>
+          </div>
+        </div>
+        <div class="adm-fields-row">
+          <div class="adm-field">
+            <label>Título seção: Histórias recentes
+              <input type="text" name="ui_home_recent" value="<?= h($cfg['ui_home_recent'] ?? 'Histórias recentes') ?>">
+            </label>
+          </div>
+          <div class="adm-field">
+            <label>Título seção: Séries &amp; Histórias
+              <input type="text" name="ui_series_title" value="<?= h($cfg['ui_series_title'] ?? 'Séries & Histórias') ?>">
+            </label>
+          </div>
+        </div>
+        <div class="adm-fields-row">
+          <div class="adm-field">
+            <label>Título seção: Bio &amp; Links
+              <input type="text" name="ui_bio_title" value="<?= h($cfg['ui_bio_title'] ?? 'Bio & Links') ?>">
+            </label>
+          </div>
+          <div class="adm-field">
+            <label>Link: voltar para séries
+              <input type="text" name="ui_back_series" value="<?= h($cfg['ui_back_series'] ?? '← Séries') ?>">
             </label>
           </div>
         </div>

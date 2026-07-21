@@ -175,6 +175,18 @@ INSERT INTO languages (code, name, is_default) VALUES ('pt', 'Português', 1);
 INSERT INTO admin_users (username, password_hash) VALUES
   ('admin', '$2y$10$MGty3O44fDBNpTWFJ2sX5OmErv7DyBOMzRH5T8TBt8nuX2IB1F7je');
 INSERT INTO site_settings (`key`, `value`) VALUES
-  ('site_name',    'Histórias'),
-  ('accent_color', '#2e7d52'),
-  ('logo_url',     '');
+  ('site_name',          'Histórias'),
+  ('accent_color',       '#2e7d52'),
+  ('logo_url',           ''),
+  ('ui_nav_stories',     'Histórias'),
+  ('ui_nav_bio',         'Bio'),
+  ('ui_btn_go_dark',     '☽ Escuro'),
+  ('ui_btn_go_light',    '☀ Claro'),
+  ('ui_footer_login',    'Entrar'),
+  ('ui_footer_register', 'Cadastrar'),
+  ('ui_footer_profile',  'Perfil'),
+  ('ui_footer_logout',   'Sair'),
+  ('ui_home_recent',     'Histórias recentes'),
+  ('ui_series_title',    'Séries & Histórias'),
+  ('ui_bio_title',       'Bio & Links'),
+  ('ui_back_series',     '← Séries');

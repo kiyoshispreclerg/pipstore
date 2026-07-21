@@ -70,7 +70,9 @@
   }
 
   function updateThemeBtn(btn, theme) {
-    btn.textContent = theme === 'dark' ? '☀ Claro' : '☽ Escuro';
+    btn.textContent = theme === 'dark'
+      ? (btn.getAttribute('data-go-light') || '☀ Claro')
+      : (btn.getAttribute('data-go-dark')  || '☽ Escuro');
     btn.classList.toggle('active', theme === 'dark');
   }
 
