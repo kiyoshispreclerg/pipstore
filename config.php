@@ -86,12 +86,16 @@ function run_pending_migrations(mysqli $db): void {
     }
 }
 
-function load_settings(mysqli $db): array {
+function load_settings(mysqli $db, int $lang_id = 0): array {
     $defaults = ['site_name' => SITE_NAME, 'accent_color' => '#2e7d52', 'logo_url' => ''];
     $res = mysqli_query($db, 'SELECT `key`, `value` FROM site_settings');
-    if (!$res) return $defaults;
-    while ($r = mysqli_fetch_assoc($res)) {
-        $defaults[$r['key']] = $r['value'];
+    if ($res) while ($r = mysqli_fetch_assoc($res)) $defaults[$r['key']] = $r['value'];
+
+    if ($lang_id > 0) {
+        $res2 = mysqli_query($db,
+            "SELECT `key`, `value` FROM site_settings_t WHERE lang_id = $lang_id");
+        if ($res2) while ($r = mysqli_fetch_assoc($res2)) $defaults[$r['key']] = $r['value'];
     }
+
     return $defaults;
 }

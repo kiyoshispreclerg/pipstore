@@ -629,17 +629,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
             mysqli_execute($st); mysqli_stmt_close($st);
         }
 
-        // Textos da interface
-        $ui_fields = ['ui_nav_stories','ui_nav_bio','ui_btn_go_dark','ui_btn_go_light',
-                      'ui_footer_login','ui_footer_register','ui_footer_profile','ui_footer_logout',
-                      'ui_home_recent','ui_series_title','ui_bio_title','ui_back_series'];
-        foreach ($ui_fields as $uf) {
-            $uv = trim($_POST[$uf] ?? '');
-            $st = mysqli_prepare($db,
-                'INSERT INTO site_settings (`key`,`value`) VALUES (?,?)
-                 ON DUPLICATE KEY UPDATE `value`=VALUES(`value`)');
-            mysqli_stmt_bind_param($st, 'ss', $uf, $uv);
-            mysqli_execute($st); mysqli_stmt_close($st);
+        // Textos da interface — por idioma (site_settings_t)
+        $ui_fields  = ['ui_nav_stories','ui_nav_bio','ui_btn_go_dark','ui_btn_go_light',
+                       'ui_footer_login','ui_footer_register','ui_footer_profile','ui_footer_logout',
+                       'ui_home_recent','ui_series_title','ui_bio_title','ui_back_series'];
+        $ui_post    = $_POST['ui'] ?? [];
+        $all_langs2 = get_all_langs($db);
+        foreach ($all_langs2 as $l2) {
+            $lid2 = (int)$l2['id'];
+            foreach ($ui_fields as $uf) {
+                $uv = trim($ui_post[$lid2][$uf] ?? '');
+                if ($uv === '') {
+                    $st = mysqli_prepare($db,
+                        'DELETE FROM site_settings_t WHERE `key`=? AND lang_id=?');
+                    mysqli_stmt_bind_param($st, 'si', $uf, $lid2);
+                } else {
+                    $st = mysqli_prepare($db,
+                        'INSERT INTO site_settings_t (`key`,lang_id,`value`) VALUES (?,?,?)
+                         ON DUPLICATE KEY UPDATE `value`=VALUES(`value`)');
+                    mysqli_stmt_bind_param($st, 'sis', $uf, $lid2, $uv);
+                }
+                mysqli_execute($st); mysqli_stmt_close($st);
+            }
         }
 
         // Conteúdo da home por idioma
@@ -1491,6 +1502,11 @@ if ($section === 'design') {
     $res = mysqli_query($db, 'SELECT lang_id, title, content FROM home_t');
     while ($r = mysqli_fetch_assoc($res)) $home_trans[$r['lang_id']] = $r;
 
+    // Textos da interface por idioma
+    $ui_trans = [];
+    $res_uit = mysqli_query($db, 'SELECT `key`, lang_id, `value` FROM site_settings_t');
+    if ($res_uit) while ($r = mysqli_fetch_assoc($res_uit)) $ui_trans[(int)$r['lang_id']][$r['key']] = $r['value'];
+
     ob_start(); ?>
     <form method="post" class="adm-form">
       <input type="hidden" name="_action" value="save_design">
@@ -1613,80 +1629,129 @@ if ($section === 'design') {
       </div>
 
       <div class="adm-card" style="margin-bottom:1.5rem">
-        <h2 style="font-size:1rem;font-weight:700;margin-bottom:1rem">Textos da Interface</h2>
+        <h2 style="font-size:1rem;font-weight:700;margin-bottom:.5rem">Textos da Interface</h2>
         <p style="font-size:.82rem;color:var(--adm-muted);margin-bottom:1rem">
-          Personalize rótulos e botões do site público. Emojis são permitidos.
+          Personalize rótulos e botões do site público por idioma. Deixe vazio para usar o padrão.
+          Emojis são permitidos.
         </p>
-        <div class="adm-fields-row">
-          <div class="adm-field">
-            <label>Menu: link Histórias
-              <input type="text" name="ui_nav_stories" value="<?= h($cfg['ui_nav_stories'] ?? 'Histórias') ?>">
-            </label>
+        <?php
+        $ui_defaults = [
+            'ui_nav_stories'    => 'Histórias',
+            'ui_nav_bio'        => 'Bio',
+            'ui_btn_go_dark'    => '☽ Escuro',
+            'ui_btn_go_light'   => '☀ Claro',
+            'ui_footer_login'   => 'Entrar',
+            'ui_footer_register'=> 'Cadastrar',
+            'ui_footer_profile' => 'Perfil',
+            'ui_footer_logout'  => 'Sair',
+            'ui_home_recent'    => 'Histórias recentes',
+            'ui_series_title'   => 'Séries & Histórias',
+            'ui_bio_title'      => 'Bio & Links',
+            'ui_back_series'    => '← Séries',
+        ];
+        foreach ($all_langs as $l):
+            $lid2   = (int)$l['id'];
+            $is_def = ($lid2 === $default_lid);
+            $uv     = fn(string $k) => $ui_trans[$lid2][$k] ?? $cfg[$k] ?? $ui_defaults[$k] ?? '';
+        ?>
+        <fieldset class="adm-fieldset">
+          <legend><?= h($l['name']) ?> (<?= h($l['code']) ?>)<?= $is_def ? ' — idioma padrão' : '' ?></legend>
+          <div class="adm-fields-row">
+            <div class="adm-field">
+              <label>Menu: Histórias
+                <input type="text" name="ui[<?= $lid2 ?>][ui_nav_stories]"
+                       value="<?= h($uv('ui_nav_stories')) ?>"
+                       placeholder="<?= h($ui_defaults['ui_nav_stories']) ?>">
+              </label>
+            </div>
+            <div class="adm-field">
+              <label>Menu: Bio
+                <input type="text" name="ui[<?= $lid2 ?>][ui_nav_bio]"
+                       value="<?= h($uv('ui_nav_bio')) ?>"
+                       placeholder="<?= h($ui_defaults['ui_nav_bio']) ?>">
+              </label>
+            </div>
           </div>
-          <div class="adm-field">
-            <label>Menu: link Bio
-              <input type="text" name="ui_nav_bio" value="<?= h($cfg['ui_nav_bio'] ?? 'Bio') ?>">
-            </label>
+          <div class="adm-fields-row">
+            <div class="adm-field">
+              <label>Botão tema — modo claro <small style="color:var(--adm-muted)">(vai para escuro)</small>
+                <input type="text" name="ui[<?= $lid2 ?>][ui_btn_go_dark]"
+                       value="<?= h($uv('ui_btn_go_dark')) ?>"
+                       placeholder="<?= h($ui_defaults['ui_btn_go_dark']) ?>">
+              </label>
+            </div>
+            <div class="adm-field">
+              <label>Botão tema — modo escuro <small style="color:var(--adm-muted)">(vai para claro)</small>
+                <input type="text" name="ui[<?= $lid2 ?>][ui_btn_go_light]"
+                       value="<?= h($uv('ui_btn_go_light')) ?>"
+                       placeholder="<?= h($ui_defaults['ui_btn_go_light']) ?>">
+              </label>
+            </div>
           </div>
-        </div>
-        <div class="adm-fields-row">
-          <div class="adm-field">
-            <label>Botão tema — modo claro <small style="color:var(--adm-muted)">(clique vai para escuro)</small>
-              <input type="text" name="ui_btn_go_dark" value="<?= h($cfg['ui_btn_go_dark'] ?? '☽ Escuro') ?>">
-            </label>
+          <div class="adm-fields-row">
+            <div class="adm-field">
+              <label>Footer: Entrar
+                <input type="text" name="ui[<?= $lid2 ?>][ui_footer_login]"
+                       value="<?= h($uv('ui_footer_login')) ?>"
+                       placeholder="<?= h($ui_defaults['ui_footer_login']) ?>">
+              </label>
+            </div>
+            <div class="adm-field">
+              <label>Footer: Cadastrar
+                <input type="text" name="ui[<?= $lid2 ?>][ui_footer_register]"
+                       value="<?= h($uv('ui_footer_register')) ?>"
+                       placeholder="<?= h($ui_defaults['ui_footer_register']) ?>">
+              </label>
+            </div>
+            <div class="adm-field">
+              <label>Footer: Perfil
+                <input type="text" name="ui[<?= $lid2 ?>][ui_footer_profile]"
+                       value="<?= h($uv('ui_footer_profile')) ?>"
+                       placeholder="<?= h($ui_defaults['ui_footer_profile']) ?>">
+              </label>
+            </div>
+            <div class="adm-field">
+              <label>Footer: Sair
+                <input type="text" name="ui[<?= $lid2 ?>][ui_footer_logout]"
+                       value="<?= h($uv('ui_footer_logout')) ?>"
+                       placeholder="<?= h($ui_defaults['ui_footer_logout']) ?>">
+              </label>
+            </div>
           </div>
-          <div class="adm-field">
-            <label>Botão tema — modo escuro <small style="color:var(--adm-muted)">(clique vai para claro)</small>
-              <input type="text" name="ui_btn_go_light" value="<?= h($cfg['ui_btn_go_light'] ?? '☀ Claro') ?>">
-            </label>
+          <div class="adm-fields-row">
+            <div class="adm-field">
+              <label>Título: Histórias recentes
+                <input type="text" name="ui[<?= $lid2 ?>][ui_home_recent]"
+                       value="<?= h($uv('ui_home_recent')) ?>"
+                       placeholder="<?= h($ui_defaults['ui_home_recent']) ?>">
+              </label>
+            </div>
+            <div class="adm-field">
+              <label>Título: Séries &amp; Histórias
+                <input type="text" name="ui[<?= $lid2 ?>][ui_series_title]"
+                       value="<?= h($uv('ui_series_title')) ?>"
+                       placeholder="<?= h($ui_defaults['ui_series_title']) ?>">
+              </label>
+            </div>
           </div>
-        </div>
-        <div class="adm-fields-row">
-          <div class="adm-field">
-            <label>Footer: Entrar
-              <input type="text" name="ui_footer_login" value="<?= h($cfg['ui_footer_login'] ?? 'Entrar') ?>">
-            </label>
+          <div class="adm-fields-row">
+            <div class="adm-field">
+              <label>Título: Bio &amp; Links
+                <input type="text" name="ui[<?= $lid2 ?>][ui_bio_title]"
+                       value="<?= h($uv('ui_bio_title')) ?>"
+                       placeholder="<?= h($ui_defaults['ui_bio_title']) ?>">
+              </label>
+            </div>
+            <div class="adm-field">
+              <label>Link: voltar para séries
+                <input type="text" name="ui[<?= $lid2 ?>][ui_back_series]"
+                       value="<?= h($uv('ui_back_series')) ?>"
+                       placeholder="<?= h($ui_defaults['ui_back_series']) ?>">
+              </label>
+            </div>
           </div>
-          <div class="adm-field">
-            <label>Footer: Cadastrar
-              <input type="text" name="ui_footer_register" value="<?= h($cfg['ui_footer_register'] ?? 'Cadastrar') ?>">
-            </label>
-          </div>
-          <div class="adm-field">
-            <label>Footer: Perfil
-              <input type="text" name="ui_footer_profile" value="<?= h($cfg['ui_footer_profile'] ?? 'Perfil') ?>">
-            </label>
-          </div>
-          <div class="adm-field">
-            <label>Footer: Sair
-              <input type="text" name="ui_footer_logout" value="<?= h($cfg['ui_footer_logout'] ?? 'Sair') ?>">
-            </label>
-          </div>
-        </div>
-        <div class="adm-fields-row">
-          <div class="adm-field">
-            <label>Título seção: Histórias recentes
-              <input type="text" name="ui_home_recent" value="<?= h($cfg['ui_home_recent'] ?? 'Histórias recentes') ?>">
-            </label>
-          </div>
-          <div class="adm-field">
-            <label>Título seção: Séries &amp; Histórias
-              <input type="text" name="ui_series_title" value="<?= h($cfg['ui_series_title'] ?? 'Séries & Histórias') ?>">
-            </label>
-          </div>
-        </div>
-        <div class="adm-fields-row">
-          <div class="adm-field">
-            <label>Título seção: Bio &amp; Links
-              <input type="text" name="ui_bio_title" value="<?= h($cfg['ui_bio_title'] ?? 'Bio & Links') ?>">
-            </label>
-          </div>
-          <div class="adm-field">
-            <label>Link: voltar para séries
-              <input type="text" name="ui_back_series" value="<?= h($cfg['ui_back_series'] ?? '← Séries') ?>">
-            </label>
-          </div>
-        </div>
+        </fieldset>
+        <?php endforeach; ?>
       </div>
 
       <div class="adm-actions">

@@ -557,7 +557,7 @@ function hex_to_rgb(string $hex): string {
 
 $lang              = get_current_lang($db);
 $all_langs         = get_all_langs($db);
-$GLOBALS['_settings'] = load_settings($db);
+$GLOBALS['_settings'] = load_settings($db, (int)$lang['id']);
 $reader            = current_reader($db);
 $GLOBALS['_reader'] = $reader;
 
