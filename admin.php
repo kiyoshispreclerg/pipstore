@@ -135,6 +135,38 @@ function generate_slug(string $title): string {
     return trim($slug, '-');
 }
 
+// Salva um upload de imagem de capa em uploads/covers/ e retorna o caminho relativo, ou null em falha.
+function save_cover_upload(array $file): ?string {
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) return null;
+
+    $info = @getimagesize($file['tmp_name']);
+    if (!$info) return null;
+
+    $ext = match ($info[2]) {
+        IMAGETYPE_JPEG => 'jpg',
+        IMAGETYPE_PNG  => 'png',
+        IMAGETYPE_GIF  => 'gif',
+        IMAGETYPE_WEBP => 'webp',
+        default        => null,
+    };
+    if ($ext === null) return null;
+
+    $dir = __DIR__ . '/uploads/covers';
+    if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) return null;
+
+    $name = 'cover_' . bin2hex(random_bytes(8)) . '.' . $ext;
+    if (!move_uploaded_file($file['tmp_name'], $dir . '/' . $name)) return null;
+
+    return 'uploads/covers/' . $name;
+}
+
+// Remove um arquivo de capa antigo, se estiver dentro de uploads/covers/.
+function delete_cover_file(string $path): void {
+    if ($path === '' || !str_starts_with($path, 'uploads/covers/')) return;
+    $full = __DIR__ . '/' . $path;
+    if (is_file($full)) @unlink($full);
+}
+
 function redirect(string $url): void {
     header('Location: ' . $url);
     exit;
@@ -412,10 +444,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
         $bid   = (int)($_POST['book_id']   ?? 0);
         $srid  = (int)($_POST['series_id'] ?? 0);
         $slug  = trim($_POST['slug'] ?? '');
-        $cover  = trim($_POST['cover_image'] ?? '');
+        $cover  = trim($_POST['existing_cover_image'] ?? '');
         $sort   = (int)($_POST['sort_order'] ?? 0);
         $pub    = isset($_POST['is_published']) ? 1 : 0;
         $trans  = $_POST['trans'] ?? [];
+
+        if (!empty($_POST['remove_cover'])) {
+            delete_cover_file($cover);
+            $cover = '';
+        }
+        if (isset($_FILES['cover_image_file']) && $_FILES['cover_image_file']['error'] !== UPLOAD_ERR_NO_FILE) {
+            $uploaded = save_cover_upload($_FILES['cover_image_file']);
+            if ($uploaded === null) {
+                flash('Falha ao enviar a imagem de capa. Use JPG, PNG, GIF ou WEBP.', 'err');
+                redirect('admin.php?section=books' . ($bid > 0 ? '&edit=' . $bid : '&new=1'));
+            }
+            delete_cover_file($cover);
+            $cover = $uploaded;
+        }
         $default_lid = get_default_lang_id($db);
 
         if ($slug === '') $slug = generate_slug($trans[$default_lid]['title'] ?? '');
@@ -456,9 +502,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
 
     if ($pa === 'delete_book') {
         $bid = (int)($_POST['book_id'] ?? 0);
+        $st = mysqli_prepare($db, 'SELECT cover_image FROM books WHERE id=?');
+        mysqli_stmt_bind_param($st, 'i', $bid);
+        mysqli_execute($st);
+        $old = mysqli_fetch_assoc(mysqli_stmt_get_result($st));
         $st = mysqli_prepare($db, 'DELETE FROM books WHERE id=?');
         mysqli_stmt_bind_param($st, 'i', $bid);
         mysqli_execute($st); mysqli_stmt_close($st);
+        if ($old) delete_cover_file((string)($old['cover_image'] ?? ''));
         flash('Livro removido.');
         redirect('admin.php?section=books');
     }
@@ -1088,9 +1139,10 @@ if ($section === 'books') {
             ? 'Editar: ' . h($edit_trans[$default_lid]['title'] ?? $edit['slug'])
             : 'Novo Livro';
         ob_start(); ?>
-        <form method="post" class="adm-form adm-card">
+        <form method="post" class="adm-form adm-card" enctype="multipart/form-data">
           <input type="hidden" name="_action" value="save_book">
           <input type="hidden" name="book_id" value="<?= $edit ? $edit['id'] : 0 ?>">
+          <input type="hidden" name="existing_cover_image" value="<?= $edit ? h($edit['cover_image'] ?? '') : '' ?>">
           <div class="adm-fields-row">
             <div class="adm-field">
               <label>Série
@@ -1124,9 +1176,18 @@ if ($section === 'books') {
             </div>
           </div>
           <div class="adm-field">
-            <label>URL da Capa (imagem, opcional)
-              <input type="url" name="cover_image" value="<?= $edit ? h($edit['cover_image'] ?? '') : '' ?>">
+            <label>Capa (imagem, opcional — JPG, PNG, GIF ou WEBP)
+              <input type="file" name="cover_image_file" accept="image/jpeg,image/png,image/gif,image/webp">
             </label>
+            <?php if ($edit && !empty($edit['cover_image'])): ?>
+            <div style="display:flex;align-items:center;gap:.6rem;margin-top:.5rem">
+              <img src="<?= h($edit['cover_image']) ?>" alt="" style="width:70px;border-radius:4px;box-shadow:var(--adm-shadow,0 1px 4px rgba(0,0,0,.15))">
+              <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;font-size:.85rem">
+                <input type="checkbox" name="remove_cover" value="1">
+                Remover capa atual
+              </label>
+            </div>
+            <?php endif; ?>
           </div>
           <?php foreach ($all_langs as $l):
                 $is_def = ((int)$l['id'] === $default_lid); ?>

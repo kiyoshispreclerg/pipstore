@@ -142,6 +142,7 @@ function view_home(mysqli $db, array $lang): array {
       <?php foreach ($books as $b): ?>
       <div class="book-card-wrap">
         <a href="?action=book&amp;slug=<?= ue($b['slug']) ?>" class="book-card">
+          <?= cover_bg((string)($b['cover_image'] ?? '')) ?>
           <div class="book-card-series"><?= h($b['series_title']) ?></div>
           <?= h($b['title']) ?>
         </a>
@@ -174,7 +175,7 @@ function view_series(mysqli $db, array $lang): array {
 
     foreach ($series_list as &$s) {
         $sid = (int)$s['id'];
-        $sql2 = "SELECT b.id, b.slug,
+        $sql2 = "SELECT b.id, b.slug, b.cover_image,
                         COALESCE(bt.title, bt2.title, b.slug) AS title
                  FROM books b
                  LEFT JOIN books_t bt  ON bt.book_id  = b.id AND bt.lang_id = $lid
@@ -208,6 +209,7 @@ function view_series(mysqli $db, array $lang): array {
         <?php foreach ($s['books'] as $b): ?>
         <div class="book-card-wrap">
           <a href="?action=book&amp;slug=<?= ue($b['slug']) ?>" class="book-card">
+            <?= cover_bg((string)($b['cover_image'] ?? '')) ?>
             <div class="book-card-series"><?= h($s['title']) ?></div>
             <?= h($b['title']) ?>
           </a>
@@ -520,6 +522,15 @@ function h(string $s): string {
 
 function ue(string $s): string {
     return urlencode($s);
+}
+
+// Gera o <span> de fundo com a capa do livro, para o fundo dos cards.
+// (usa url() num style inline no próprio elemento — se fosse via custom
+// property lida por um <link> externo, o navegador resolveria o caminho
+// relativo à pasta do CSS, não à página, e a imagem nunca carregaria)
+function cover_bg(string $path): string {
+    if ($path === '') return '';
+    return '<span class="book-card-cover" style="background-image:url(\'' . h($path) . '\')"></span>';
 }
 
 // Botão de estrela para favoritar série ou livro

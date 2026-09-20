@@ -352,6 +352,9 @@ hr.divider {
 .book-card-wrap .fav-btn.active { opacity: 1; }
 
 .book-card {
+  position: relative;
+  z-index: 0;
+  overflow: hidden;
   border: 1.5px solid var(--border);
   border-radius: 10px;
   padding: .9rem 1rem;
@@ -372,6 +375,20 @@ hr.divider {
   color: var(--text-muted);
   margin-bottom: .25rem;
 }
+
+/* Capa do livro recortada e semitransparente atrás do texto do card */
+.book-card-cover {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-size: cover;
+  background-position: center;
+  opacity: .16;
+  transition: opacity .15s, transform .25s;
+}
+.book-card:hover .book-card-cover { opacity: .26; transform: scale(1.4); }
+[data-theme="dark"] .book-card-cover { opacity: .22; }
+[data-theme="dark"] .book-card:hover .book-card-cover { opacity: .34; }
 
 /* ── Home ────────────────────────────────────────────────────────────── */
 .home-welcome {
