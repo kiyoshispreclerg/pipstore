@@ -817,6 +817,7 @@ function admin_wrap(string $title, string $section, string $body, ?array $flash,
       $pc = mysqli_fetch_row(mysqli_query($db, "SELECT COUNT(*) FROM comments WHERE status='pending'"));
       if ($pc && $pc[0] > 0) echo ' <span style="background:var(--adm-accent);color:#fff;border-radius:999px;padding:1px 6px;font-size:.72rem">' . (int)$pc[0] . '</span>';
     ?></a>
+    <a href="admin.php?section=readers"   class="<?= $section==='readers'   ?'active':'' ?>">Usuários</a>
     <a href="admin.php?section=design"    class="<?= $section==='design'    ?'active':'' ?>">Design</a>
     <a href="admin.php?section=import"    class="<?= $section==='import'    ?'active':'' ?>">Importar ODT</a>
     <hr>
@@ -1917,6 +1918,87 @@ if ($section === 'comments') {
     <?php endif; ?>
     <?php
     admin_wrap('Comentários', 'comments', ob_get_clean(), $flash);
+    exit;
+}
+
+/* ── Usuários (leitores) ───────────────────────────────────────────────── */
+if ($section === 'readers') {
+    $default_lid = get_default_lang_id($db);
+    $q = trim($_GET['q'] ?? '');
+
+    $where = '';
+    if ($q !== '') {
+        $q_esc = mysqli_real_escape_string($db, $q);
+        $where = "WHERE r.username LIKE '%$q_esc%' OR r.email LIKE '%$q_esc%'";
+    }
+
+    $readers_list = [];
+    $res = mysqli_query($db,
+        "SELECT r.id, r.username, r.email, r.created_at, r.trusted_at, r.email_verified,
+                (SELECT COUNT(*) FROM comments c WHERE c.reader_id = r.id) AS comment_count
+         FROM readers r
+         $where
+         ORDER BY r.created_at DESC
+         LIMIT 500");
+    while ($r = mysqli_fetch_assoc($res)) $readers_list[$r['id']] = $r;
+
+    $fav_map = [];
+    if ($readers_list) {
+        $ids = implode(',', array_map('intval', array_keys($readers_list)));
+        $fres = mysqli_query($db,
+            "SELECT rf.reader_id,
+                    CASE WHEN rf.type = 'book' THEN bt.title ELSE st.title END AS title
+             FROM reader_favorites rf
+             LEFT JOIN books_t  bt ON bt.book_id   = rf.target_id AND bt.lang_id = $default_lid AND rf.type = 'book'
+             LEFT JOIN series_t st ON st.series_id = rf.target_id AND st.lang_id = $default_lid AND rf.type = 'series'
+             WHERE rf.reader_id IN ($ids)
+             ORDER BY rf.reader_id, rf.created_at");
+        while ($fr = mysqli_fetch_assoc($fres)) {
+            $fav_map[$fr['reader_id']][] = $fr['title'] ?: '—';
+        }
+    }
+
+    ob_start(); ?>
+    <form method="get" class="adm-list-header" style="gap:.5rem">
+      <input type="hidden" name="section" value="readers">
+      <input type="text" name="q" placeholder="Buscar por nome ou e-mail…" value="<?= h($q) ?>"
+             style="flex:1;max-width:320px">
+      <button type="submit" class="adm-btn">Buscar</button>
+      <?php if ($q !== ''): ?>
+      <a href="admin.php?section=readers" class="adm-btn">Limpar</a>
+      <?php endif; ?>
+    </form>
+
+    <?php if (!$readers_list): ?>
+    <p style="color:var(--adm-muted)">Nenhum usuário encontrado.</p>
+    <?php else: ?>
+    <table class="adm-table">
+      <thead><tr><th>Nome</th><th>E-mail</th><th>Cadastrado em</th><th>Livros favoritos</th><th>Comentários</th></tr></thead>
+      <tbody>
+      <?php foreach ($readers_list as $r): ?>
+      <tr>
+        <td>
+          <?= h($r['username']) ?>
+          <?php if ($r['trusted_at']): ?>
+          <span title="Confiável" style="color:var(--adm-accent)">★</span>
+          <?php endif; ?>
+          <?php if (!$r['email_verified']): ?>
+          <span title="E-mail não verificado" style="color:var(--adm-muted)">✉</span>
+          <?php endif; ?>
+        </td>
+        <td><?= h($r['email']) ?></td>
+        <td><?= h(date('d/m/Y H:i', strtotime($r['created_at']))) ?></td>
+        <td style="max-width:320px;font-size:.85rem">
+          <?= $r['id'] && !empty($fav_map[$r['id']]) ? h(implode(', ', $fav_map[$r['id']])) : '—' ?>
+        </td>
+        <td><?= (int)$r['comment_count'] ?></td>
+      </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+    <?php endif; ?>
+    <?php
+    admin_wrap('Usuários', 'readers', ob_get_clean(), $flash);
     exit;
 }
 
