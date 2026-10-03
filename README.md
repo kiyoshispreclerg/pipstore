@@ -1,3 +1,5 @@
+**Português** | [English](README.en.md)
+
 # PipStore
 
 Site simples para um autor publicar suas histórias.
