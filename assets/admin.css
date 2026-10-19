@@ -326,3 +326,27 @@ form.inline { display: inline; }
   .adm-main  { padding: 1.25rem 1rem; }
   .adm-stats { gap: .6rem; }
 }
+
+/* ── Mídia do capítulo (imagens / OST) ───────────────────────────────── */
+.adm-para-ref { margin: 0 0 1rem; font-size: .82rem; }
+.adm-para-ref summary { cursor: pointer; color: var(--adm-muted); font-weight: 600; }
+.adm-para-ref ol { margin: .5rem 0 0 2.2rem; max-height: 260px; overflow-y: auto; color: var(--adm-muted); }
+.adm-media-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  padding: .45rem 0;
+  border-bottom: 1px dashed var(--adm-border);
+}
+.adm-media-row:last-child { border-bottom: none; }
+.adm-media-new { margin: .3rem 0 .6rem; }
+.adm-media-thumb { width: 64px; height: 48px; object-fit: cover; border-radius: 4px; }
+.adm-media-grow { flex: 1; min-width: 160px; }
+.adm-form .adm-media-inline {
+  display: flex; align-items: center; gap: .3rem;
+  margin: 0; font-weight: normal; cursor: pointer;
+}
+.adm-form .adm-media-row input,
+.adm-form .adm-media-row select { width: auto; margin-top: 0; }
+.adm-form .adm-media-row .adm-media-grow { flex: 1; }

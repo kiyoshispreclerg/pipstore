@@ -135,8 +135,8 @@ function generate_slug(string $title): string {
     return trim($slug, '-');
 }
 
-// Salva um upload de imagem de capa em uploads/covers/ e retorna o caminho relativo, ou null em falha.
-function save_cover_upload(array $file): ?string {
+// Salva um upload de imagem em uploads/<subdir>/ e retorna o caminho relativo, ou null em falha.
+function save_image_upload(array $file, string $subdir, string $prefix): ?string {
     if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) return null;
 
     $info = @getimagesize($file['tmp_name']);
@@ -151,20 +151,45 @@ function save_cover_upload(array $file): ?string {
     };
     if ($ext === null) return null;
 
-    $dir = __DIR__ . '/uploads/covers';
+    $dir = __DIR__ . '/uploads/' . $subdir;
     if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) return null;
 
-    $name = 'cover_' . bin2hex(random_bytes(8)) . '.' . $ext;
+    $name = $prefix . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
     if (!move_uploaded_file($file['tmp_name'], $dir . '/' . $name)) return null;
 
-    return 'uploads/covers/' . $name;
+    return 'uploads/' . $subdir . '/' . $name;
 }
 
-// Remove um arquivo de capa antigo, se estiver dentro de uploads/covers/.
-function delete_cover_file(string $path): void {
-    if ($path === '' || !str_starts_with($path, 'uploads/covers/')) return;
+// Remove um arquivo enviado, se estiver dentro de uploads/<subdir>/.
+function delete_upload_file(string $path, string $subdir): void {
+    if ($path === '' || !str_starts_with($path, 'uploads/' . $subdir . '/') || str_contains($path, '..')) return;
     $full = __DIR__ . '/' . $path;
     if (is_file($full)) @unlink($full);
+}
+
+function save_cover_upload(array $file): ?string {
+    return save_image_upload($file, 'covers', 'cover');
+}
+
+function delete_cover_file(string $path): void {
+    delete_upload_file($path, 'covers');
+}
+
+// Remove do disco as imagens dos capítulos selecionados por $chapter_ids_sql
+// (subconsulta que retorna ids). Chamar antes do DELETE — as linhas somem por cascata.
+function delete_chapter_media_files(mysqli $db, string $chapter_ids_sql): void {
+    $res = mysqli_query($db, "SELECT image_path FROM chapter_images WHERE chapter_id IN ($chapter_ids_sql)");
+    if ($res) while ($r = mysqli_fetch_row($res)) delete_upload_file((string)$r[0], 'chapters');
+}
+
+// Divide o conteúdo em parágrafos do mesmo jeito que format_content() em index.php.
+function split_paragraphs(string $raw): array {
+    $out = [];
+    foreach (explode("\n", $raw) as $line) {
+        $line = trim($line);
+        if ($line !== '') $out[] = $line;
+    }
+    return $out;
 }
 
 function redirect(string $url): void {
@@ -314,6 +339,13 @@ function notify_new_book(mysqli $db, int $book_id, int $series_id, int $default_
 ══════════════════════════════════════════════════════════════════════ */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
+    // Envio maior que post_max_size: o PHP descarta $_POST e $_FILES inteiros
+    if (empty($_POST) && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
+        flash('O envio excedeu o limite do servidor (post_max_size = ' . ini_get('post_max_size')
+            . '). Nada foi salvo — envie arquivos menores ou em partes.', 'err');
+        $back_q = (string)parse_url($_SERVER['HTTP_REFERER'] ?? '', PHP_URL_QUERY);
+        redirect('admin.php' . ($back_q !== '' ? '?' . $back_q : ''));
+    }
     verify_csrf();
     $pa = $_POST['_action'] ?? '';
 
@@ -425,6 +457,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
 
     if ($pa === 'delete_series') {
         $sid = (int)($_POST['series_id'] ?? 0);
+        delete_chapter_media_files($db,
+            "SELECT c.id FROM chapters c JOIN books b ON b.id = c.book_id WHERE b.series_id = $sid");
         $st = mysqli_prepare($db, 'DELETE FROM series WHERE id=?');
         mysqli_stmt_bind_param($st, 'i', $sid);
         mysqli_execute($st); mysqli_stmt_close($st);
@@ -506,6 +540,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
         mysqli_stmt_bind_param($st, 'i', $bid);
         mysqli_execute($st);
         $old = mysqli_fetch_assoc(mysqli_stmt_get_result($st));
+        delete_chapter_media_files($db, "SELECT id FROM chapters WHERE book_id = $bid");
         $st = mysqli_prepare($db, 'DELETE FROM books WHERE id=?');
         mysqli_stmt_bind_param($st, 'i', $bid);
         mysqli_execute($st); mysqli_stmt_close($st);
@@ -560,7 +595,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
             mysqli_stmt_bind_param($st2, 'iiss', $cid, $lid2, $title, $content);
             mysqli_execute($st2); mysqli_stmt_close($st2);
         }
+        $media_errors = [];
+
+        // Imagens já existentes: reposicionar ou remover
+        foreach (($_POST['img'] ?? []) as $img_id_s => $im) {
+            $img_id = (int)$img_id_s;
+            if (!empty($im['remove'])) {
+                $st = mysqli_prepare($db, 'SELECT image_path FROM chapter_images WHERE id=? AND chapter_id=?');
+                mysqli_stmt_bind_param($st, 'ii', $img_id, $cid);
+                mysqli_execute($st);
+                $old = mysqli_fetch_assoc(mysqli_stmt_get_result($st));
+                mysqli_stmt_close($st);
+                if (!$old) continue;
+                $st = mysqli_prepare($db, 'DELETE FROM chapter_images WHERE id=? AND chapter_id=?');
+                mysqli_stmt_bind_param($st, 'ii', $img_id, $cid);
+                mysqli_execute($st); mysqli_stmt_close($st);
+                delete_upload_file((string)$old['image_path'], 'chapters');
+                continue;
+            }
+            $para = max(1, (int)($im['para'] ?? 1)) - 1;
+            $pos  = ($im['pos'] ?? '') === 'before' ? 'before' : 'after';
+            $alt  = mb_substr(trim($im['alt'] ?? ''), 0, 300);
+            $st = mysqli_prepare($db,
+                'UPDATE chapter_images SET paragraph_index=?, position=?, alt_text=? WHERE id=? AND chapter_id=?');
+            mysqli_stmt_bind_param($st, 'issii', $para, $pos, $alt, $img_id, $cid);
+            mysqli_execute($st); mysqli_stmt_close($st);
+        }
+
+        // Novas imagens (campos paralelos new_img_*[])
+        $nf = $_FILES['new_img_file'] ?? null;
+        if ($nf && is_array($nf['name'])) {
+            foreach (array_keys($nf['name']) as $k) {
+                if ($nf['error'][$k] === UPLOAD_ERR_NO_FILE) continue;
+                $file = [
+                    'name' => $nf['name'][$k], 'tmp_name' => $nf['tmp_name'][$k],
+                    'error' => $nf['error'][$k], 'size' => $nf['size'][$k],
+                ];
+                $path = save_image_upload($file, 'chapters', 'img');
+                if ($path === null) { $media_errors[] = $file['name']; continue; }
+                $para = max(1, (int)($_POST['new_img_para'][$k] ?? 1)) - 1;
+                $pos  = ($_POST['new_img_pos'][$k] ?? '') === 'before' ? 'before' : 'after';
+                $alt  = mb_substr(trim($_POST['new_img_alt'][$k] ?? ''), 0, 300);
+                $st = mysqli_prepare($db,
+                    'INSERT INTO chapter_images (chapter_id, paragraph_index, position, image_path, alt_text) VALUES (?,?,?,?,?)');
+                mysqli_stmt_bind_param($st, 'iisss', $cid, $para, $pos, $path, $alt);
+                mysqli_execute($st); mysqli_stmt_close($st);
+            }
+        }
+
         if ($is_new_chapter) notify_new_chapter($db, $cid, $bid, $default_lid);
+        if ($media_errors) {
+            flash('Capítulo salvo, mas falhou o envio de: ' . implode(', ', $media_errors)
+                . '. Use JPG, PNG, GIF ou WEBP (máx. ' . ini_get('upload_max_filesize') . ' por arquivo).', 'err');
+            redirect('admin.php?section=chapters&book_id=' . $bid . '&edit=' . $cid);
+        }
         flash('Capítulo salvo.');
         redirect('admin.php?section=chapters&book_id=' . $bid);
     }
@@ -568,6 +656,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
     if ($pa === 'delete_chapter') {
         $cid = (int)($_POST['chapter_id'] ?? 0);
         $bid_back = (int)($_POST['book_id'] ?? 0);
+        delete_chapter_media_files($db, "SELECT $cid");
         $st = mysqli_prepare($db, 'DELETE FROM chapters WHERE id=?');
         mysqli_stmt_bind_param($st, 'i', $cid);
         mysqli_execute($st); mysqli_stmt_close($st);
@@ -1328,6 +1417,15 @@ if ($section === 'chapters') {
         }
     }
 
+    $edit_images = [];
+    if ($edit) {
+        $res = mysqli_query($db,
+            "SELECT id, paragraph_index, position, image_path, alt_text FROM chapter_images
+             WHERE chapter_id = $edit_id ORDER BY paragraph_index, position = 'after', id");
+        while ($r = mysqli_fetch_assoc($res)) $edit_images[] = $r;
+    }
+    $edit_paras = split_paragraphs((string)($edit_trans[$default_lid]['content'] ?? ''));
+
     // Lista de capítulos
     $chapters_list = [];
     if ($filter_bid > 0) {
@@ -1352,7 +1450,7 @@ if ($section === 'chapters') {
             ? 'Editar: ' . h($edit_trans[$default_lid]['title'] ?? $edit['slug'])
             : 'Novo Capítulo';
         ob_start(); ?>
-        <form method="post" class="adm-form adm-card">
+        <form method="post" class="adm-form adm-card" enctype="multipart/form-data">
           <input type="hidden" name="_action" value="save_chapter">
           <input type="hidden" name="chapter_id" value="<?= $edit ? $edit['id'] : 0 ?>">
           <input type="hidden" name="book_id" value="<?= $filter_bid ?>">
@@ -1396,6 +1494,57 @@ if ($section === 'chapters') {
             </div>
           </fieldset>
           <?php endforeach; ?>
+
+          <?php if ($edit_paras): ?>
+          <details class="adm-para-ref">
+            <summary>Parágrafos numerados (<?= count($edit_paras) ?>, idioma padrão — conforme salvo)</summary>
+            <ol>
+              <?php foreach ($edit_paras as $ptext):
+                    $plain = strip_tags($ptext); ?>
+              <li><?= h(mb_strlen($plain) > 90 ? mb_substr($plain, 0, 90) . '…' : $plain) ?></li>
+              <?php endforeach; ?>
+            </ol>
+          </details>
+          <?php endif; ?>
+
+          <fieldset class="adm-fieldset">
+            <legend>Imagens</legend>
+            <p class="adm-hint" style="margin:0 0 .8rem">
+              Ocupam a largura do texto, antes ou depois do parágrafo indicado (numerado a partir de 1).
+              Valem para todos os idiomas. JPG, PNG, GIF ou WEBP, até <?= h(ini_get('upload_max_filesize')) ?> por arquivo.
+            </p>
+            <?php foreach ($edit_images as $im): $iid = (int)$im['id']; ?>
+            <div class="adm-media-row">
+              <img src="<?= h($im['image_path']) ?>" alt="" class="adm-media-thumb">
+              <select name="img[<?= $iid ?>][pos]">
+                <option value="before" <?= $im['position'] === 'before' ? 'selected' : '' ?>>Antes do</option>
+                <option value="after"  <?= $im['position'] === 'after'  ? 'selected' : '' ?>>Depois do</option>
+              </select>
+              <label class="adm-media-inline">§
+                <input type="number" min="1" name="img[<?= $iid ?>][para]" value="<?= (int)$im['paragraph_index'] + 1 ?>" style="width:5rem">
+              </label>
+              <input type="text" name="img[<?= $iid ?>][alt]" placeholder="Texto alternativo" value="<?= h($im['alt_text'] ?? '') ?>" class="adm-media-grow">
+              <label class="adm-media-inline">
+                <input type="checkbox" name="img[<?= $iid ?>][remove]" value="1"> Remover
+              </label>
+            </div>
+            <?php endforeach; ?>
+            <div class="adm-media-new" id="new-img-rows">
+              <div class="adm-media-row">
+                <input type="file" name="new_img_file[]" accept="image/jpeg,image/png,image/gif,image/webp">
+                <select name="new_img_pos[]">
+                  <option value="before">Antes do</option>
+                  <option value="after" selected>Depois do</option>
+                </select>
+                <label class="adm-media-inline">§
+                  <input type="number" min="1" name="new_img_para[]" value="1" style="width:5rem">
+                </label>
+                <input type="text" name="new_img_alt[]" placeholder="Texto alternativo" class="adm-media-grow">
+              </div>
+            </div>
+            <button type="button" class="adm-btn adm-btn-sm" data-add-row="new-img-rows">+ Outra imagem</button>
+          </fieldset>
+
           <div class="adm-actions">
             <button type="submit" class="adm-btn adm-btn-primary"><?= $edit ? 'Atualizar' : 'Criar Capítulo' ?></button>
             <a href="admin.php?section=chapters&amp;book_id=<?= $filter_bid ?>" class="adm-btn">Cancelar</a>

@@ -68,8 +68,10 @@ function stmt_fetch_all(mysqli_stmt $st): array {
    FORMATAÇÃO DE CONTEÚDO
 ══════════════════════════════════════════════════════════════════════ */
 
-function format_content(string $raw): string {
-    if ($raw === '') return '';
+// $images: [paragraph_index => ['before' => [img…], 'after' => [img…]]], cada img com image_path/alt_text.
+// Imagens que apontam para além do último parágrafo vão para o fim do texto.
+function format_content(string $raw, array $images = []): string {
+    if ($raw === '' && !$images) return '';
     $escaped = htmlspecialchars($raw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     // Restaura somente <em> e </em>
     $escaped = str_replace(
@@ -84,9 +86,25 @@ function format_content(string $raw): string {
     foreach ($lines as $line) {
         $line = trim($line);
         if ($line !== '') {
+            $html .= chapter_figures($images[$i]['before'] ?? []);
             $html .= '<p data-p="' . $i . '">' . $line . "</p>\n";
+            $html .= chapter_figures($images[$i]['after'] ?? []);
+            unset($images[$i]);
             $i++;
         }
+    }
+    ksort($images);
+    foreach ($images as $byPos) {
+        $html .= chapter_figures($byPos['before'] ?? []) . chapter_figures($byPos['after'] ?? []);
+    }
+    return $html;
+}
+
+function chapter_figures(array $imgs): string {
+    $html = '';
+    foreach ($imgs as $im) {
+        $html .= '<figure class="chapter-figure"><img src="' . h($im['image_path']) . '" alt="'
+               . h((string)($im['alt_text'] ?? '')) . '" loading="lazy"></figure>' . "\n";
     }
     return $html;
 }
@@ -427,6 +445,17 @@ function view_chapter(mysqli $db, string $slug, array $lang): array {
         $comments_by_para[(int)$cm['paragraph_index']][] = $cm;
     }
 
+    // Imagens inseridas entre parágrafos
+    $images_by_para = [];
+    $st7 = mysqli_prepare($db,
+        'SELECT paragraph_index, position, image_path, alt_text FROM chapter_images
+         WHERE chapter_id = ? ORDER BY paragraph_index, id');
+    mysqli_stmt_bind_param($st7, 'i', $cid);
+    mysqli_execute($st7);
+    foreach (stmt_fetch_all($st7) as $im) {
+        $images_by_para[(int)$im['paragraph_index']][$im['position']][] = $im;
+    }
+
     $reader_id = (int)($GLOBALS['_reader']['id'] ?? 0);
 
     ob_start(); ?>
@@ -436,7 +465,7 @@ function view_chapter(mysqli $db, string $slug, array $lang): array {
     <h1 class="page-title"><?= h($info['title']) ?></h1>
     <hr class="divider">
     <div class="content-body">
-      <?= format_content($info['content']) ?>
+      <?= format_content($info['content'], $images_by_para) ?>
     </div>
     <nav class="chapter-nav">
       <?php if ($prev): ?>

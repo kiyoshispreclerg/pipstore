@@ -3,3 +3,5 @@
 migrations/001_private_books.sql
 uploads/covers/*
 !uploads/covers/.gitkeep
+uploads/chapters/*
+!uploads/chapters/.gitkeep

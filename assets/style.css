@@ -195,6 +195,10 @@ hr.divider {
 }
 .content-body p:last-child { margin-bottom: 0; }
 
+/* Imagens inseridas entre parágrafos: largura total do texto */
+.chapter-figure { margin: 1.6em 0; }
+.chapter-figure img { display: block; width: 100%; height: auto; border-radius: 4px; }
+
 /* ── Botões principais ───────────────────────────────────────────────── */
 .btn {
   display: inline-block;

@@ -2,6 +2,7 @@
 document.addEventListener('DOMContentLoaded', function () {
   setupItalicButtons();
   autoSlugFromTitle();
+  setupAddRowButtons();
 });
 
 /* ── Botão de itálico ────────────────────────────────────────────────── */
@@ -67,4 +68,20 @@ function slugify(str) {
     .replace(/[̀-ͯ]/g, '') // remove diacríticos
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
+}
+
+/* ── "+ Outra…": clona a última linha de um grupo de campos ───────────── */
+function setupAddRowButtons() {
+  document.querySelectorAll('[data-add-row]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var box  = document.getElementById(btn.getAttribute('data-add-row'));
+      var last = box && box.lastElementChild;
+      if (!last) return;
+      var row = last.cloneNode(true);
+      row.querySelectorAll('input').forEach(function (inp) {
+        if (inp.type === 'file' || inp.type === 'text') inp.value = '';
+      });
+      box.appendChild(row);
+    });
+  });
 }
