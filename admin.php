@@ -175,11 +175,40 @@ function delete_cover_file(string $path): void {
     delete_upload_file($path, 'covers');
 }
 
-// Remove do disco as imagens dos capítulos selecionados por $chapter_ids_sql
+// Salva um upload de áudio (OST) em uploads/ost/ e retorna o caminho relativo, ou null em falha.
+function save_audio_upload(array $file): ?string {
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) return null;
+
+    $mime = (new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']) ?: '';
+    $ext = match ($mime) {
+        'audio/mpeg', 'audio/mp3'                       => 'mp3',
+        'audio/ogg', 'application/ogg'                  => 'ogg',
+        'audio/opus'                                    => 'opus',
+        'audio/wav', 'audio/x-wav', 'audio/vnd.wave'    => 'wav',
+        'audio/flac', 'audio/x-flac'                    => 'flac',
+        'audio/mp4', 'audio/x-m4a', 'video/mp4'         => 'm4a',
+        'audio/aac', 'audio/x-hx-aac-adts'              => 'aac',
+        'audio/webm', 'video/webm'                      => 'webm',
+        default                                         => null,
+    };
+    if ($ext === null) return null;
+
+    $dir = __DIR__ . '/uploads/ost';
+    if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) return null;
+
+    $name = 'ost_' . bin2hex(random_bytes(8)) . '.' . $ext;
+    if (!move_uploaded_file($file['tmp_name'], $dir . '/' . $name)) return null;
+
+    return 'uploads/ost/' . $name;
+}
+
+// Remove do disco as imagens e áudios dos capítulos selecionados por $chapter_ids_sql
 // (subconsulta que retorna ids). Chamar antes do DELETE — as linhas somem por cascata.
 function delete_chapter_media_files(mysqli $db, string $chapter_ids_sql): void {
     $res = mysqli_query($db, "SELECT image_path FROM chapter_images WHERE chapter_id IN ($chapter_ids_sql)");
     if ($res) while ($r = mysqli_fetch_row($res)) delete_upload_file((string)$r[0], 'chapters');
+    $res = mysqli_query($db, "SELECT audio_path FROM chapter_audio WHERE chapter_id IN ($chapter_ids_sql)");
+    if ($res) while ($r = mysqli_fetch_row($res)) delete_upload_file((string)$r[0], 'ost');
 }
 
 // Divide o conteúdo em parágrafos do mesmo jeito que format_content() em index.php.
@@ -643,10 +672,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
             }
         }
 
+        // OST já existentes: alterar intervalo/título ou remover
+        foreach (($_POST['ost'] ?? []) as $ost_id_s => $ot) {
+            $ost_id = (int)$ost_id_s;
+            if (!empty($ot['remove'])) {
+                $st = mysqli_prepare($db, 'SELECT audio_path FROM chapter_audio WHERE id=? AND chapter_id=?');
+                mysqli_stmt_bind_param($st, 'ii', $ost_id, $cid);
+                mysqli_execute($st);
+                $old = mysqli_fetch_assoc(mysqli_stmt_get_result($st));
+                mysqli_stmt_close($st);
+                if (!$old) continue;
+                $st = mysqli_prepare($db, 'DELETE FROM chapter_audio WHERE id=? AND chapter_id=?');
+                mysqli_stmt_bind_param($st, 'ii', $ost_id, $cid);
+                mysqli_execute($st); mysqli_stmt_close($st);
+                delete_upload_file((string)$old['audio_path'], 'ost');
+                continue;
+            }
+            $p1 = max(1, (int)($ot['start'] ?? 1)) - 1;
+            $p2 = max(1, (int)($ot['end']   ?? 1)) - 1;
+            if ($p2 < $p1) [$p1, $p2] = [$p2, $p1];
+            $title = mb_substr(trim($ot['title'] ?? ''), 0, 200);
+            $st = mysqli_prepare($db,
+                'UPDATE chapter_audio SET para_start=?, para_end=?, title=? WHERE id=? AND chapter_id=?');
+            mysqli_stmt_bind_param($st, 'iisii', $p1, $p2, $title, $ost_id, $cid);
+            mysqli_execute($st); mysqli_stmt_close($st);
+        }
+
+        // Novas OST (campos paralelos new_ost_*[])
+        $nf = $_FILES['new_ost_file'] ?? null;
+        if ($nf && is_array($nf['name'])) {
+            foreach (array_keys($nf['name']) as $k) {
+                if ($nf['error'][$k] === UPLOAD_ERR_NO_FILE) continue;
+                $file = [
+                    'name' => $nf['name'][$k], 'tmp_name' => $nf['tmp_name'][$k],
+                    'error' => $nf['error'][$k], 'size' => $nf['size'][$k],
+                ];
+                $path = save_audio_upload($file);
+                if ($path === null) { $media_errors[] = $file['name']; continue; }
+                $p1 = max(1, (int)($_POST['new_ost_start'][$k] ?? 1)) - 1;
+                $p2 = max(1, (int)($_POST['new_ost_end'][$k]   ?? 1)) - 1;
+                if ($p2 < $p1) [$p1, $p2] = [$p2, $p1];
+                $title = mb_substr(trim($_POST['new_ost_title'][$k] ?? ''), 0, 200);
+                $st = mysqli_prepare($db,
+                    'INSERT INTO chapter_audio (chapter_id, para_start, para_end, audio_path, title) VALUES (?,?,?,?,?)');
+                mysqli_stmt_bind_param($st, 'iiiss', $cid, $p1, $p2, $path, $title);
+                mysqli_execute($st); mysqli_stmt_close($st);
+            }
+        }
+
         if ($is_new_chapter) notify_new_chapter($db, $cid, $bid, $default_lid);
         if ($media_errors) {
             flash('Capítulo salvo, mas falhou o envio de: ' . implode(', ', $media_errors)
-                . '. Use JPG, PNG, GIF ou WEBP (máx. ' . ini_get('upload_max_filesize') . ' por arquivo).', 'err');
+                . '. Imagens: JPG, PNG, GIF ou WEBP. Áudio: MP3, OGG, OPUS, WAV, FLAC, M4A, AAC ou WEBM'
+                . ' (máx. ' . ini_get('upload_max_filesize') . ' por arquivo).', 'err');
             redirect('admin.php?section=chapters&book_id=' . $bid . '&edit=' . $cid);
         }
         flash('Capítulo salvo.');
@@ -1424,6 +1502,13 @@ if ($section === 'chapters') {
              WHERE chapter_id = $edit_id ORDER BY paragraph_index, position = 'after', id");
         while ($r = mysqli_fetch_assoc($res)) $edit_images[] = $r;
     }
+    $edit_audio = [];
+    if ($edit) {
+        $res = mysqli_query($db,
+            "SELECT id, para_start, para_end, audio_path, title FROM chapter_audio
+             WHERE chapter_id = $edit_id ORDER BY para_start, id");
+        while ($r = mysqli_fetch_assoc($res)) $edit_audio[] = $r;
+    }
     $edit_paras = split_paragraphs((string)($edit_trans[$default_lid]['content'] ?? ''));
 
     // Lista de capítulos
@@ -1543,6 +1628,45 @@ if ($section === 'chapters') {
               </div>
             </div>
             <button type="button" class="adm-btn adm-btn-sm" data-add-row="new-img-rows">+ Outra imagem</button>
+          </fieldset>
+
+          <fieldset class="adm-fieldset">
+            <legend>Trilha sonora (OST)</legend>
+            <p class="adm-hint" style="margin:0 0 .8rem">
+              Cada áudio fica disponível ao lado dos parágrafos do intervalo (de § até §, numerados a partir de 1),
+              com play/pause/stop. Vale para todos os idiomas. MP3, OGG, OPUS, WAV, FLAC, M4A, AAC ou WEBM,
+              até <?= h(ini_get('upload_max_filesize')) ?> por arquivo
+              (<?= h(ini_get('post_max_size')) ?> por envio no total).<br>
+              <strong>Envie apenas áudio sobre o qual você tenha direitos de uso.</strong>
+            </p>
+            <?php foreach ($edit_audio as $au): $aid = (int)$au['id']; ?>
+            <div class="adm-media-row">
+              <audio controls preload="none" src="<?= h($au['audio_path']) ?>" class="adm-media-audio"></audio>
+              <label class="adm-media-inline">§
+                <input type="number" min="1" name="ost[<?= $aid ?>][start]" value="<?= (int)$au['para_start'] + 1 ?>" style="width:5rem">
+              </label>
+              <label class="adm-media-inline">até §
+                <input type="number" min="1" name="ost[<?= $aid ?>][end]" value="<?= (int)$au['para_end'] + 1 ?>" style="width:5rem">
+              </label>
+              <input type="text" name="ost[<?= $aid ?>][title]" placeholder="Título (opcional)" value="<?= h($au['title'] ?? '') ?>" class="adm-media-grow">
+              <label class="adm-media-inline">
+                <input type="checkbox" name="ost[<?= $aid ?>][remove]" value="1"> Remover
+              </label>
+            </div>
+            <?php endforeach; ?>
+            <div class="adm-media-new" id="new-ost-rows">
+              <div class="adm-media-row">
+                <input type="file" name="new_ost_file[]" accept="audio/*">
+                <label class="adm-media-inline">§
+                  <input type="number" min="1" name="new_ost_start[]" value="1" style="width:5rem">
+                </label>
+                <label class="adm-media-inline">até §
+                  <input type="number" min="1" name="new_ost_end[]" value="<?= max(1, count($edit_paras)) ?>" style="width:5rem">
+                </label>
+                <input type="text" name="new_ost_title[]" placeholder="Título (opcional)" class="adm-media-grow">
+              </div>
+            </div>
+            <button type="button" class="adm-btn adm-btn-sm" data-add-row="new-ost-rows">+ Outro áudio</button>
           </fieldset>
 
           <div class="adm-actions">

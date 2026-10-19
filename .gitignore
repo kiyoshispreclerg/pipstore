@@ -5,3 +5,5 @@ uploads/covers/*
 !uploads/covers/.gitkeep
 uploads/chapters/*
 !uploads/chapters/.gitkeep
+uploads/ost/*
+!uploads/ost/.gitkeep

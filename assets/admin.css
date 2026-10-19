@@ -350,3 +350,4 @@ form.inline { display: inline; }
 .adm-form .adm-media-row input,
 .adm-form .adm-media-row select { width: auto; margin-top: 0; }
 .adm-form .adm-media-row .adm-media-grow { flex: 1; }
+.adm-media-audio { height: 2rem; max-width: 240px; }

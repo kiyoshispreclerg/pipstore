@@ -456,6 +456,19 @@ function view_chapter(mysqli $db, string $slug, array $lang): array {
         $images_by_para[(int)$im['paragraph_index']][$im['position']][] = $im;
     }
 
+    // Trilha sonora (OST) por intervalo de parágrafos
+    $st8 = mysqli_prepare($db,
+        'SELECT para_start, para_end, audio_path, title FROM chapter_audio
+         WHERE chapter_id = ? ORDER BY para_start, id');
+    mysqli_stmt_bind_param($st8, 'i', $cid);
+    mysqli_execute($st8);
+    $ost = array_map(fn($a) => [
+        'start' => (int)$a['para_start'],
+        'end'   => (int)$a['para_end'],
+        'src'   => $a['audio_path'],
+        'title' => (string)($a['title'] ?? ''),
+    ], stmt_fetch_all($st8));
+
     $reader_id = (int)($GLOBALS['_reader']['id'] ?? 0);
 
     ob_start(); ?>
@@ -498,6 +511,7 @@ function view_chapter(mysqli $db, string $slug, array $lang): array {
         localStorage.setItem('lastChapter_' + <?= json_encode($book['book_slug'] ?? '') ?>, <?= json_encode($slug) ?>);
       } catch(e) {}
       window.__commentsByPara = <?= json_encode($comments_by_para, JSON_THROW_ON_ERROR | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
+      window.__ost          = <?= json_encode($ost, JSON_THROW_ON_ERROR | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
       window.__readerId     = <?= $reader_id ?: 'null' ?>;
       window.__chapterId    = <?= $cid ?>;
       window.__loginUrl     = <?= json_encode('auth.php?a=login') ?>;

@@ -538,6 +538,54 @@ hr.divider {
   color: var(--accent);
 }
 
+/* ── Trilha sonora (OST): faixa à esquerda do texto ──────────────────── */
+.content-body { position: relative; }
+.ost-track {
+  --ost-w: 1.6rem;
+  position: absolute;
+  right: calc(100% + .5rem + var(--lane, 0) * (var(--ost-w) + .3rem));
+  width: var(--ost-w);
+}
+.ost-track::before {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0;
+  left: calc(50% - 1px);
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent-light);
+  transition: background .15s;
+}
+.ost-track.playing::before { background: var(--accent); }
+.ost-controls {
+  position: sticky;
+  top: 4rem;
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+}
+.ost-btn {
+  position: relative;
+  width: var(--ost-w);
+  height: var(--ost-w);
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  background: var(--bg-card);
+  color: var(--accent);
+  font-size: .6rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-family: var(--font-ui);
+  transition: background .15s, color .15s, opacity .15s;
+}
+.ost-btn:hover, .ost-track.playing .ost-play { background: var(--accent); color: #fff; }
+.ost-stop { opacity: .45; }
+.ost-track.started .ost-stop { opacity: 1; }
+
 /* ── Modal de comentários ─────────────────────────────────────────────── */
 #comment-modal {
   position: fixed;
@@ -767,6 +815,13 @@ hr.divider {
   .header-controls { gap: .2rem; }
   .ctrl-btn { padding: .2rem .45rem; font-size: .72rem; }
   .para-comment-btn { left: auto; right: 0; }
+  /* Sem espaço lateral: todas as lanes na mesma coluna, controles empilhados */
+  .ost-track { --ost-w: 1.05rem; right: calc(100% + .1rem); }
+  .ost-controls {
+    margin-top: calc(var(--lane, 0) * 2.6rem);
+    top: calc(6.5rem + var(--lane, 0) * 2.6rem);
+  }
+  .ost-btn { font-size: .45rem; }
   #comment-modal { padding: 2rem .5rem .5rem; align-items: flex-end; }
   .comment-modal-panel { max-height: 90vh; border-radius: 14px 14px 0 0; }
 }

@@ -9,6 +9,7 @@
     setupToggleButtons();
     highlightLastReadChapter();
     setupComments();
+    setupOst();
     setupFavorites();
   });
 
@@ -308,6 +309,103 @@
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+    }
+  }
+
+  /* ── Trilha sonora (OST) ─────────────────────────────────────────────── */
+
+  // Cada áudio vira uma faixa à esquerda do texto, do topo do parágrafo inicial
+  // ao fim do final, com controles que acompanham a rolagem (sticky).
+  function setupOst() {
+    var tracks = window.__ost || [];
+    var body   = document.querySelector('.content-body');
+    if (!tracks.length || !body) return;
+
+    var paras = body.querySelectorAll('p[data-p]');
+    var last  = paras.length - 1;
+    if (last < 0) return;
+
+    var items = tracks
+      .filter(function (t) { return t.start <= last; })
+      .map(function (t) {
+        return { src: t.src, title: t.title, start: t.start, end: Math.min(Math.max(t.end, t.start), last) };
+      })
+      .sort(function (a, b) { return a.start - b.start || a.end - b.end; });
+
+    // Intervalos sobrepostos vão para colunas (lanes) diferentes
+    var laneEnds = [];
+    items.forEach(function (it) {
+      var l = 0;
+      while (l < laneEnds.length && laneEnds[l] >= it.start) l++;
+      laneEnds[l] = it.end;
+      it.lane = l;
+    });
+
+    var audios = [];
+    items.forEach(function (it) {
+      var label = (it.title ? it.title + ' — ' : 'Trilha sonora — ')
+                + '§' + (it.start + 1) + (it.end > it.start ? '–' + (it.end + 1) : '');
+
+      var track = document.createElement('div');
+      track.className = 'ost-track';
+      track.style.setProperty('--lane', it.lane);
+      track.title = label;
+      track.innerHTML =
+        '<div class="ost-controls">'
+        + '<button type="button" class="ost-btn ost-play" aria-label="Tocar: ' + esc(label) + '">▶</button>'
+        + '<button type="button" class="ost-btn ost-stop" aria-label="Parar: ' + esc(label) + '">■</button>'
+        + '</div>';
+      body.insertBefore(track, body.firstChild); // no fim quebraria o p:last-child
+
+      var audio = new Audio();
+      audio.preload = 'none';
+      audio.src = it.src;
+      audios.push(audio);
+
+      var playBtn = track.querySelector('.ost-play');
+      var stopBtn = track.querySelector('.ost-stop');
+
+      playBtn.addEventListener('click', function () {
+        if (audio.paused) {
+          audios.forEach(function (a) { if (a !== audio) a.pause(); });
+          audio.play().catch(function () {});
+        } else {
+          audio.pause();
+        }
+      });
+      stopBtn.addEventListener('click', function () {
+        audio.pause();
+        audio.currentTime = 0;
+        sync();
+      });
+
+      function sync() {
+        var playing = !audio.paused;
+        playBtn.textContent = playing ? '❚❚' : '▶';
+        playBtn.setAttribute('aria-label', (playing ? 'Pausar: ' : 'Tocar: ') + label);
+        track.classList.toggle('playing', playing);
+        track.classList.toggle('started', playing || audio.currentTime > 0);
+      }
+      audio.addEventListener('play',  sync);
+      audio.addEventListener('pause', sync);
+      audio.addEventListener('ended', function () { audio.currentTime = 0; sync(); });
+
+      it.el = track;
+    });
+
+    function layout() {
+      items.forEach(function (it) {
+        var a = paras[it.start], b = paras[it.end];
+        it.el.style.top    = a.offsetTop + 'px';
+        it.el.style.height = (b.offsetTop + b.offsetHeight - a.offsetTop) + 'px';
+      });
+    }
+    layout();
+    if (window.ResizeObserver) new ResizeObserver(layout).observe(body);
+    else window.addEventListener('resize', layout);
+
+    function esc(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
     }
   }
 
