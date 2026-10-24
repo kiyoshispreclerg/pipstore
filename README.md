@@ -1,11 +1,13 @@
-**Português** | [English](README.en.md)
+**English** | [Português](README.pt-BR.md)
 
 # PipStore
 
-Site simples para um autor publicar suas histórias.
+A simple site for authors to publish their stories.
 
-Gerencia séries, livros e capítulos, em múltiplos idiomas. Permite personalizar a cor de destaque e oferece ao leitor controle sobre a experiência: modo claro/escuro, fonte serifada ou sem serifa, tamanho do texto.
+It manages series, books and chapters, in multiple languages. It lets you customize the accent color and gives readers control over the experience: light/dark mode, serif or sans-serif font, text size.
 
-Destaca o último capítulo lido em cada livro, facilitando retomar a leitura em seções separadas. Inclui também uma seção de links para bio do autor.
+More immersion in the stories with optional illustrations and soundtrack.
 
-Feito com assistência de LLM, mas todo código é revisado antes de ir pro ar.
+It highlights the last chapter read in each book, making it easy to pick up reading in separate sections. It also includes a links section for the author's bio.
+
+Built with LLM assistance, but all code is reviewed before going live.
